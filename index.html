@@ -287,8 +287,9 @@ scene.fog = new THREE.Fog(0xb8c6cf, 160, 1250);
 const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x34402a, 0.55); scene.add(hemi);
 const sunL = new THREE.DirectionalLight(0xfff1dc, 3.1);
 sunL.castShadow = true;
-sunL.shadow.mapSize.set(2048, 2048);
-const SH = sunL.shadow.camera; SH.left = -42; SH.right = 42; SH.top = 42; SH.bottom = -42; SH.near = 1; SH.far = 260;
+// zone d'ombres de 150 m de côté, décalée vers l'avant (de 25 m derrière à ~125 m devant), carte 3072 px pour garder la même finesse
+sunL.shadow.mapSize.set(3072, 3072);
+const SH = sunL.shadow.camera; SH.left = -75; SH.right = 75; SH.top = 75; SH.bottom = -75; SH.near = 1; SH.far = 300;
 sunL.shadow.bias = -0.0004; sunL.shadow.normalBias = 0.03;
 scene.add(sunL, sunL.target);
 
@@ -1971,7 +1972,8 @@ function updateCamera(dt) {
   const fov = baseFov + clamp(P.v * KMH / 110, 0, 1.15) * 16 + Math.max(0, P.lean) * 2;
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = smooth(camera.fov, fov, 3, dt); camera.updateProjectionMatrix(); }
   // l'ombre suit le joueur
-  sunL.position.set(fx + sun.x * 120, sun.y * 120, fz - 20 + sun.z * 120); sunL.target.position.set(fx, 0, fz - 20); // ombres autour du pilote
+  const shx = fx + fwdX * 50, shz = fz + fwdZ * 50; // centre des ombres 50 m devant, dans la direction regardée
+  sunL.position.set(shx + sun.x * 140, sun.y * 140, shz + sun.z * 140); sunL.target.position.set(shx, 0, shz);
   sky.position.copy(camera.position);
 }
 function hud() {
