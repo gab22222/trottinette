@@ -1541,7 +1541,10 @@ const SU = (() => {
   const b = 0.5, a = WB - b, hcg = 1.0, I = 26; // centre de gravité : 50 cm devant l'axe arrière, à 1 m du sol ; inertie en tangage
   const mw = 8.5, kt = 120000, ct = 120;        // roue (moteur-roue + pneu) et raideur du pneu 11"
   const mk = (k, cc, cr, travel, x, F0) => ({ k, cc, cr, travel, x, F0, sag: F0 / k, tsag: (F0 + mw * G) / kt, y: 0, v: 0, road: 0, roadV: 0, fs: F0, ft: F0 + mw * G, c: F0 / k, acc: 0 });
-  const W = { F: mk(34000, 900, 1400, 0.055, a, ms * G * b / WB), R: mk(40000, 1000, 1500, 0.05, -b, ms * G * a / WB) };
+  // amplitude x2,5 : débattement 137 mm devant / 125 mm derrière, ressorts 2,5 fois plus souples,
+  // amortissement réduit d'autant (÷ √2,5) pour garder le même comportement, juste plus ample
+  const AMP = 2.5, DMP = 1 / Math.sqrt(AMP);
+  const W = { F: mk(34000 / AMP, 900 * DMP, 1400 * DMP, 0.055 * AMP, a, ms * G * b / WB), R: mk(40000 / AMP, 1000 * DMP, 1500 * DMP, 0.05 * AMP, -b, ms * G * a / WB) };
   const S = { y: 0, vy: 0, p: 0, vp: 0, shift: 0, prevV: 0, thump: 0 };
   const hash = n => { let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
   // hauteur de la route (m) sous un point : za = position absolue le long de la route (indépendante du recentrage)
