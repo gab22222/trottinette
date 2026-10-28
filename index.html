@@ -37,8 +37,8 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 .zone.on{background:rgba(255,255,255,.06)}
 #zGas{right:0;bottom:0;width:50%;height:33.34%}
 #zBoth{left:0;bottom:0;width:50%;height:33.34%}
-#zCam{left:0;right:0;bottom:33.33%;height:33.33%}
-#camReset{position:fixed;z-index:3;right:12px;bottom:calc(33.33% + 10px);display:grid;place-items:center;width:38px;height:38px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--glass);color:var(--ink);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);cursor:pointer;touch-action:manipulation;transition:opacity .2s}
+#zCam{left:0;right:0;top:0;height:33.33%}
+#camReset{position:fixed;z-index:3;right:12px;bottom:calc(66.67% + 10px);display:grid;place-items:center;width:38px;height:38px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--glass);color:var(--ink);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);cursor:pointer;touch-action:manipulation;transition:opacity .2s}
 #camReset svg{width:17px;height:17px}
 #camReset.idle{opacity:.45}
 #knob{position:fixed;z-index:3;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;border:2px solid rgba(255,255,255,.5);background:rgba(255,255,255,.08);pointer-events:none}
@@ -158,7 +158,7 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
     <h1>Trottinette</h1>
     <p>Dualtron Storm Limited, route de forêt, circulation réelle. Balade libre.</p>
     <div class="ctl">
-      <div style="grid-column:1/-1"><b>Milieu</b>Glisse pour tourner la caméra autour de toi, elle reste où tu la laisses ; le bouton ↺ la remet derrière</div>
+      <div style="grid-column:1/-1"><b>Haut</b>Glisse pour tourner la caméra autour de toi, elle reste où tu la laisses ; le bouton ↺ la remet derrière</div>
       <div><b>Gauche, bas</b>Freins (avant et arrière)</div>
       <div><b>Droite, bas</b>Gaz à fond + contrôle : glisse à gauche/droite pour tourner, vers le haut pour te pencher, vers le bas pour lever la roue</div>
     </div>
@@ -1088,14 +1088,14 @@ function hitFx(k) {
 
 // ======================================================================
 // entrées : portrait, en bas à gauche = les deux freins, en bas à droite = gaz/contrôle (glisser depuis le point de contact),
-// au milieu sur toute la largeur = caméra (glisser pour tourner autour du pilote)
+// en haut sur toute la largeur = caméra (glisser pour tourner autour du pilote), le tiers du milieu ne fait rien
 // ======================================================================
 const touch = $('#touch'), knob = $('#knob'), knobBase = $('#knobBase');
 let ctlId = null, ctlX0 = 0, ctlY0 = 0; const brakes = new Set();
 // caméra : décalage choisi au doigt, gardé tel quel jusqu'au recentrage
 const camOrbit = { yaw: 0, pitch: 0, reset: false };
 let camId = null, camX = 0, camY = 0;
-function zoneOf(x, y) { const h = innerHeight; if (y < h / 3) return null; if (y < h * 2 / 3) return 'cam'; return x < innerWidth / 2 ? 'both' : 'gas'; }
+function zoneOf(x, y) { const h = innerHeight; if (y < h / 3) return 'cam'; if (y < h * 2 / 3) return null; return x < innerWidth / 2 ? 'both' : 'gas'; }
 function refreshZones() {
   IN.both = brakes.size ? 1 : 0;
   $('#zBoth').classList.toggle('on', !!IN.both);
