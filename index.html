@@ -1488,24 +1488,26 @@ function physics(dt) {
     if (P.pitch <= 0) { SU.land(Math.min(0, P.pitchV) * WB); if (P.pitchV < -1.2) sfx('land', Math.min(1, -P.pitchV / 4)); P.pitch = 0; P.pitchV = 0; }
   }
   // stoppie (réglé pour le jeu) : freins tenus depuis plus de 120 km/h, en passant sous 120 km/h l'arrière se lève
-  // et la trottinette bascule sur sa roue avant jusqu'à 45°, tenue jusqu'à l'arrêt en freinant fort sur la roue avant,
-  // puis l'arrière redescend à l'arrêt ou au lâcher des freins
+  // et la trottinette bascule sur sa roue avant jusqu'à 45°. Une fois en l'air, le pilote tient l'équilibre :
+  // on peut lâcher les freins et même remettre les gaz (roue avant motrice), se pencher en avant réduit la traînée
+  // comme sur deux roues ; se pencher en arrière (doigt tiré vers le bas) ou s'arrêter fait redescendre l'arrière
   if (IN.both && v > 120 / KMH) P.stopArm = true; else if (!IN.both) P.stopArm = false;
   if (!P.st && P.stopArm && v <= 120 / KMH && P.pitch === 0) { P.st = { a: 0, av: 0, down: false, t: 0 }; P.stopArm = false; }
   if (P.st) {
     const S = P.st, TARGET = THREE.MathUtils.degToRad(45);
-    if (!S.down && (!IN.both || IN.throttle || v < 1.2)) { S.down = true; S.t = 0; S.a0 = S.a; }
+    if (!S.down && (pulling || v < 1.2)) { S.down = true; S.t = 0; S.a0 = S.a; }
+    // sur la roue avant seule : poussée de son moteur, freins tenus = freinage fort sur l'avant
+    const brake = IN.both ? (S.down ? SC.brakeRear : S.a < TARGET * 0.8 ? SC.brakeBoth * 0.75 : 7) * m : 0;
+    const regen = !IN.throttle && v > 0.05 ? SC.regen * m * Math.min(1, v / 3) * 0.5 : 0;
+    a = (Fm - resist - brake - regen) / m;
     if (S.down) {
       // retour sur deux roues en 0,8 s, en douceur
       S.t += dt; const u = Math.min(1, S.t / 0.8), prev = S.a;
       S.a = S.a0 * (1 + Math.cos(Math.PI * u)) / 2; S.av = (S.a - prev) / dt;
-      a = -(resist + (IN.both ? SC.brakeRear * m : 0)) / m;
       if (u >= 1) { SU.landRear(S.av * WB); sfx('land', 0.5); P.st = null; }
     } else {
-      // montée amortie vers 45° (~0,8 s), freinage fort sur la roue avant tant que l'arrière monte, puis tenu
+      // montée amortie vers 45° (~0,8 s), puis tenue
       S.av += (22 * (TARGET - S.a) - 9 * S.av) * dt; S.a = clamp(S.a + S.av * dt, 0, THREE.MathUtils.degToRad(50));
-      const dec = S.a < TARGET * 0.8 ? SC.brakeBoth * 0.75 : 7;
-      a = -dec - resist / m;
     }
   }
   P.v = Math.max(0, v + a * dt);
