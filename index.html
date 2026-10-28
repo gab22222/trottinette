@@ -683,7 +683,7 @@ function drawCars() {
 const P = { x: LANES[0] + 0.4, z: 0, yaw: 0, v: 0, pitch: 0, pitchV: 0, roll: 0, lean: 0, steer: 0, gear: 3, turbo: true, dual: true, antiFlip: false, dist: 0, wheelieT: 0, susp: 0, scrape: 0, shake: 0, tip: 0, crash: 0, crashT: 0 };
 const IN = { throttle: 0, steer: 0, lean: 0, rear: 0, both: 0 };
 const PITCH_MAX = THREE.MathUtils.degToRad(50); // l'arrière du plateau touche le sol
-const DESCENT_T = 3; // s : retour sur les deux roues quand on lâche la gâchette en wheelie
+const DESCENT_T = 1.5; // s : retour sur les deux roues quand on lâche la gâchette en wheelie
 function physics(dt) {
   const m = SC.mass + SC.rider, v = P.v;
   P.lean = smooth(P.lean, IN.lean, 8, dt);
@@ -743,7 +743,7 @@ function physics(dt) {
     thrust = (Fr - rollR - Fb) / m; a = (Fr - resist - Fb) / m;
   }
   if (P.pitch > 0 && !IN.throttle) {
-    // gâchette lâchée : la roue avant redescend toute seule en 3 s, en douceur (départ lent, posé tout en douceur) ;
+    // gâchette lâchée : la roue avant redescend toute seule en 1,5 s, en douceur (départ lent, posé tout en douceur) ;
     // le frein arrière accélère la descente
     if (!P.desc) P.desc = { t: 0, p0: P.pitch };
     const D = P.desc, prev = P.pitch;
