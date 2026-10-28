@@ -48,15 +48,23 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 .speed b{display:block;font:700 76px/0.9 var(--display);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 .speed span{font:600 13px/1 var(--display);letter-spacing:.2em;color:var(--mute)}
 .left,.right{display:flex;flex-direction:column;gap:7px;padding-top:4px}
+.left{align-items:flex-start}
 .right{align-items:flex-end}
 .pill{pointer-events:auto;font:700 13px/1 var(--display);letter-spacing:.1em;text-transform:uppercase;padding:8px 11px;border-radius:999px;border:1px solid var(--line);background:var(--glass);color:var(--ink);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);cursor:pointer;touch-action:manipulation;min-width:64px;text-align:center}
 .pill small{display:block;font:500 9px/1.2 var(--body);letter-spacing:.08em;color:var(--mute);margin-top:2px;text-transform:none}
-#bAnti[data-on="1"]{border-color:rgba(85,215,255,.6);color:#d6f4ff;background:rgba(85,215,255,.18)}
-#bTurbo[data-on="1"]{border-color:rgba(255,90,60,.7);color:#ffd7cf;background:rgba(255,90,60,.22)}
-#bTurbo[data-on="0"]{border-color:rgba(71,209,138,.6);color:#d4f7e4;background:rgba(71,209,138,.18)}
-.gears{display:flex;gap:4px}
-.gears .pill{min-width:0;padding:8px 10px}
-.gears .pill[aria-pressed="true"]{background:rgba(255,176,46,.28);border-color:rgba(255,176,46,.8);color:#fff1d6}
+#gfx{position:fixed;inset:0;z-index:8;display:grid;place-items:center;padding:20px;background:rgba(6,9,14,.55)}
+#gfx .gbox{width:min(360px,100%);box-sizing:border-box;padding:18px;border-radius:18px;border:1px solid var(--line);background:rgba(14,18,26,.94);display:flex;flex-direction:column;gap:14px}
+#gfx .gtitle{font:700 22px/1 var(--display);letter-spacing:.08em;text-transform:uppercase}
+#gfx .gseg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:12px;background:rgba(0,0,0,.35);border:1px solid var(--line)}
+#gfx .gseg button{font:700 15px/1.15 var(--display);letter-spacing:.06em;text-transform:uppercase;padding:9px 8px;border-radius:9px;border:0;background:transparent;color:var(--mute);cursor:pointer;touch-action:manipulation}
+#gfx .gseg button small{display:block;font:500 11px/1.2 var(--body);letter-spacing:0;text-transform:none;margin-top:2px}
+#gfx .gseg button[aria-pressed="true"]{background:rgba(255,176,46,.24);color:#fff1d6}
+#gfx input[type=range]{width:100%;accent-color:var(--accent);touch-action:auto}
+#gfx input[type=range]:disabled{opacity:.35}
+#gfx .gres{font:600 14px/1.35 var(--body);color:var(--mute)}
+#gfx .gres b{color:var(--ink);font:700 20px/1.1 var(--display);letter-spacing:.04em;display:block}
+#gfx .gscale{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);margin-top:4px}
+#gClose{font:700 16px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;padding:12px;border-radius:999px;border:0;background:var(--accent);color:#2a1a00;cursor:pointer}
 .info{position:fixed;z-index:4;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 128px);text-align:center;pointer-events:none;font:600 13px/1.3 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--mute);text-shadow:0 1px 8px rgba(0,0,0,.6)}
 #tip{width:min(240px,62vw);margin:10px auto 0;color:#ffd7cf;letter-spacing:.16em}
 #tip .tipbar{margin-top:5px;height:9px;border-radius:5px;background:rgba(10,14,20,.55);border:1px solid rgba(255,255,255,.25);overflow:hidden}
@@ -97,23 +105,31 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 
 <div class="dash">
   <div class="left">
-    <div class="gears" role="group" aria-label="Vitesse">
-      <button class="pill" data-gear="1" aria-pressed="false">1</button>
-      <button class="pill" data-gear="2" aria-pressed="false">2</button>
-      <button class="pill" data-gear="3" aria-pressed="true">3</button>
-    </div>
-    <button class="pill" id="bTurbo" data-on="1">Turbo<small>puissance max</small></button>
+    <button class="pill" id="bGfx">Graphismes<small id="bGfxSub">adaptatif</small></button>
   </div>
   <div class="speed"><b id="spd">0</b><span>KM/H</span></div>
   <div class="right">
-    <button class="pill" id="bMotor" data-on="2">2 moteurs<small>avant + arrière</small></button>
-    <button class="pill" id="bAnti" data-on="0">Anti-retour.<small>désactivé</small></button>
     <a class="pill" id="home" href="/">← games</a>
   </div>
 </div>
 <div class="info"><div id="dist">0,0 km</div><div id="wheelie" hidden>Wheelie</div>
   <div id="tip" hidden><span>Déséquilibre</span><div class="tipbar"><i id="tipFill"></i></div></div></div>
 <div id="fall" hidden>Chute !</div>
+<div id="gfx" hidden>
+  <div class="gbox" role="dialog" aria-label="Graphismes">
+    <div class="gtitle">Graphismes</div>
+    <div class="gseg" role="group" aria-label="Mode">
+      <button data-gmode="auto" aria-pressed="true">Adaptatif<small>s'ajuste à la fluidité</small></button>
+      <button data-gmode="manual" aria-pressed="false">Manuel<small>qualité fixe</small></button>
+    </div>
+    <div>
+      <input type="range" id="gRange" min="0.5" max="3" step="0.05" aria-label="Qualité">
+      <div class="gscale"><span>fluide</span><span id="gMax">écran natif</span></div>
+    </div>
+    <div class="gres" id="gRes"></div>
+    <button id="gClose">OK</button>
+  </div>
+</div>
 
 <div id="start" hidden>
   <div class="box">
@@ -889,21 +905,42 @@ function keyInput() {
   IN.throttle = k('ArrowUp'); IN.steer = k('ArrowRight') - k('ArrowLeft'); IN.lean = (k('KeyW') || k('KeyZ')) - k('KeyS');
   IN.rear = k('Space'); IN.both = k('KeyB') || k('ArrowDown');
 }
-// boutons du guidon : vitesses 1-2-3, ECO/TURBO, 1 ou 2 moteurs
-function renderModes() {
-  document.querySelectorAll('[data-gear]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.gear === P.gear)));
-  const t = $('#bTurbo'); t.dataset.on = P.turbo ? 1 : 0; t.innerHTML = P.turbo ? 'Turbo<small>puissance max</small>' : 'Eco<small>puissance réduite</small>';
-  const mo = $('#bMotor'); mo.dataset.on = P.dual ? 2 : 1; mo.innerHTML = P.dual ? '2 moteurs<small>avant + arrière</small>' : '1 moteur<small>arrière seul</small>';
-  const an = $('#bAnti'); an.dataset.on = P.antiFlip ? 1 : 0; an.innerHTML = 'Anti-retour.<small>' + (P.antiFlip ? 'activé' : 'désactivé') + '</small>';
-  try { localStorage.setItem('trott-modes', JSON.stringify({ g: P.gear, t: P.turbo, d: P.dual, a: P.antiFlip })); } catch (e) {}
+// réglages figés : vitesse 3, Turbo, 2 moteurs, sans capteur anti-retournement
+Object.assign(P, { gear: 3, turbo: true, dual: true, antiFlip: false });
+try { localStorage.removeItem('trott-modes'); } catch (e) {}
+
+// ======================================================================
+// graphismes : adaptatif (par défaut, vise 60 i/s) ou qualité manuelle jusqu'à la définition native de l'écran
+// ======================================================================
+const NATIVE = Math.max(1, window.devicePixelRatio || 1);
+const gfx = { mode: 'auto', ratio: Math.min(DPR, 1.6) };
+try { const sg = JSON.parse(localStorage.getItem('trott-gfx') || 'null'); if (sg && (sg.m === 'auto' || sg.m === 'manual')) { gfx.mode = sg.m; gfx.ratio = clamp(+sg.r || 1.6, 0.5, NATIVE); } } catch (e) {}
+const gRange = $('#gRange');
+gRange.max = String(NATIVE);
+$('#gMax').textContent = 'écran natif (' + Math.round(innerWidth * NATIVE) + ' × ' + Math.round(innerHeight * NATIVE) + ')';
+function applyRatio(r) { pixelRatio = r; renderer.setPixelRatio(r); resize(); }
+function renderGfx() {
+  document.querySelectorAll('[data-gmode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.gmode === gfx.mode)));
+  gRange.disabled = gfx.mode === 'auto';
+  gRange.value = String(gfx.mode === 'auto' ? pixelRatio : gfx.ratio);
+  $('#bGfxSub').textContent = gfx.mode === 'auto' ? 'adaptatif' : Math.round(gfx.ratio / NATIVE * 100) + ' %';
+  gfxRes();
+  try { localStorage.setItem('trott-gfx', JSON.stringify({ m: gfx.mode, r: gfx.ratio })); } catch (e) {}
 }
-try { const s = JSON.parse(localStorage.getItem('trott-modes') || 'null'); if (s) { P.gear = [1, 2, 3].includes(s.g) ? s.g : 3; P.turbo = s.t !== false; P.dual = s.d !== false; P.antiFlip = s.a === true; } } catch (e) {}
-document.querySelectorAll('[data-gear]').forEach(b => b.addEventListener('click', () => { P.gear = +b.dataset.gear; renderModes(); sfx('click'); }));
-$('#bTurbo').addEventListener('click', () => { P.turbo = !P.turbo; renderModes(); sfx('click'); });
-$('#bMotor').addEventListener('click', () => { P.dual = !P.dual; renderModes(); sfx('click'); });
-// capteur anti-retournement : activé, la trottinette ne bascule jamais en arrière
-$('#bAnti').addEventListener('click', () => { P.antiFlip = !P.antiFlip; renderModes(); sfx('click'); });
-renderModes();
+function gfxRes() {
+  const w = renderer.domElement.width, h = renderer.domElement.height;
+  $('#gRes').innerHTML = '<b>' + w + ' × ' + h + ' px</b>' + (gfx.mode === 'auto' ? 'Résolution actuelle, ajustée toute seule selon la fluidité' : Math.round(pixelRatio / NATIVE * 100) + ' % de la définition de l\u2019écran');
+}
+document.querySelectorAll('[data-gmode]').forEach(b => b.addEventListener('click', () => {
+  gfx.mode = b.dataset.gmode;
+  if (gfx.mode === 'manual') { gfx.ratio = clamp(pixelRatio, 0.5, NATIVE); applyRatio(gfx.ratio); }
+  renderGfx(); sfx('click');
+}));
+gRange.addEventListener('input', () => { if (gfx.mode !== 'manual') return; gfx.ratio = +gRange.value; applyRatio(gfx.ratio); renderGfx(); });
+$('#bGfx').addEventListener('click', () => { audioInit(); $('#gfx').hidden = false; renderGfx(); });
+$('#gClose').addEventListener('click', () => { $('#gfx').hidden = true; });
+if (gfx.mode === 'manual') applyRatio(gfx.ratio);
+renderGfx();
 
 // ======================================================================
 // sons : sifflement des moteurs-roues, vent (selon la vitesse²), roulement, voitures qui passent
@@ -1082,13 +1119,14 @@ function frame(now) {
   if (n === 8) acc = 0;
   recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); hud(); updateAudio();
   renderer.render(scene, camera);
-  // résolution adaptative : vise 60 i/s, ne descend pas sous 30
+  // résolution adaptative (mode par défaut) : vise 60 i/s, ne descend pas sous 30
   fpsT += dt; fpsN++;
+  if (fpsT > 1.5 && gfx.mode !== 'auto') { fpsT = 0; fpsN = 0; }
   if (fpsT > 1.5) {
     const ms = fpsT / fpsN * 1000;
     const want = ms > 22 ? pixelRatio - 0.15 : ms < 15 ? pixelRatio + 0.1 : pixelRatio;
     const np = clamp(want, 0.85, DPR);
-    if (Math.abs(np - pixelRatio) > 0.01) { pixelRatio = np; renderer.setPixelRatio(pixelRatio); resize(); }
+    if (Math.abs(np - pixelRatio) > 0.01) { applyRatio(np); if (!$('#gfx').hidden) renderGfx(); }
     fpsT = 0; fpsN = 0;
   }
   requestAnimationFrame(frame);
