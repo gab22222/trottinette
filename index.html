@@ -127,7 +127,7 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
   </div>
 </div>
 <div class="info"><div id="dist">0,0 km</div><div id="wheelie" hidden>Wheelie</div>
-  <div id="tip" hidden><span>Déséquilibre</span><div class="tipbar"><i id="tipFill"></i></div></div></div>
+  <div id="tip" hidden><span id="tipLbl">Équilibre</span><div class="tipbar"><i id="tipFill"></i></div></div></div>
 <div id="fall" hidden>Chute !</div>
 <button id="replay" type="button" aria-label="Reprendre" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg></button>
 <div id="gfx" hidden>
@@ -197,7 +197,8 @@ const SC = {
   vmax: { ground: 145, groundTuck: 180, wheelie: 160, wheelieTuck: 190, scrape: 220 },
   ecoPower: 0.6, ecoForce: 0.7,
   mu: 0.9,             // adhérence pneu / asphalte sec
-  brakeRear: 3.8, brakeBoth: 7.6,  // m/s² (hydrauliques)
+  brakeRear: 7.6, brakeBoth: 15.2,  // m/s² (hydrauliques, doublés pour le jeu)
+  scrapeBoost: 1.2,   // poussée en plus quand la bavette racle (étincelles) : +50 % d'accélération nette
   regen: 1.6,          // m/s² de frein moteur quand on relâche la gâchette (2 moteurs)
   pull: 330,           // N·m : le pilote tire sur le guidon en se penchant en arrière (~370 N à 0,9 m de la roue arrière)
   CdA: 0.70, CdAtuck: 0.52, Crr: 0.015, rho: 1.2,
@@ -947,7 +948,8 @@ function physics(dt) {
   const forceMax = Math.max(SC.forcePeak, Fneed * 1.05) * ff;
   const powerMax = Math.max(SC.powerMotor, Fneed * vt * 1.15) * pf * (P.dual ? 1 : 0.62);
   const vtK = clamp((vt + 0.1 - v) / 0.15, 0, 1); // limiteur : coupe en douceur sur les derniers 0,5 km/h
-  const Fm = IN.throttle * Math.min(forceMax, powerMax / Math.max(v, 0.3)) * capK * vtK;
+  // bavette au sol (étincelles) : +50 % de poussée
+  const Fm = IN.throttle * Math.min(forceMax, powerMax / Math.max(v, 0.3)) * capK * vtK * (P.scrape ? SC.scrapeBoost : 1);
   let Fr = Fm, Ff = P.dual && !airborne ? Fm : 0;
   // freins : le frein avant n'agit que si la roue avant touche le sol
   const brakeDecel = IN.both ? SC.brakeBoth : IN.rear ? SC.brakeRear : 0;
@@ -999,7 +1001,7 @@ function physics(dt) {
   // direction : rayon limité par l'adhérence à grande vitesse et par l'angle du guidon à basse vitesse
   const auth = P.pitch > 0.05 ? 0.35 : 1;
   const yawMax = Math.min(0.85 * G / Math.max(P.v, 1.5), Math.max(P.v, 0.6) * Math.tan(THREE.MathUtils.degToRad(32)) / WB);
-  let yawRate = -P.steer * yawMax * auth;
+  let yawRate = -P.steer * yawMax * auth * 2; // maniabilité doublée (plus vif que la vraie trottinette, pour le jeu)
   if (Math.abs(IN.steer) < 0.05) P.yaw *= 1 - dt * 0.35; // petite aide pour rester dans l'axe de la route
   P.yaw = clamp(P.yaw + yawRate * dt, -1.1, 1.1);
   P.x += -Math.sin(P.yaw) * P.v * dt; P.z += -Math.cos(P.yaw) * P.v * dt;
@@ -1011,15 +1013,15 @@ function physics(dt) {
   if (P.pitch > THREE.MathUtils.degToRad(4)) P.wheelieT += dt; else if (P.pitch === 0) P.wheelieT = 0;
   P.susp = smooth(P.susp, 0, 8, dt);
   // bavette au sol : sans capteur anti-retournement, la jauge de déséquilibre monte en 5 s ;
-  // pleine, elle clignote en rouge 3 fois (toutes les 1,5 s) et, 1,5 s après le 3e clignotement,
+  // pleine, elle clignote en rouge 3 fois (toutes les 0,5 s) et, 1,5 s après le 3e clignotement,
   // le pilote bascule s'il tient toujours le doigt vers le bas avec les gaz (sinon l'alerte s'arrête et la jauge redescend)
   if (P.warn >= 0) {
     if (!(pulling && IN.throttle)) P.warn = -1;
     else {
       P.tip = 1;
-      const k = Math.floor(P.warn / 1.5); P.warn += dt;
-      if (Math.floor(P.warn / 1.5) > k && k < 2) sfx('warn');
-      if (P.warn >= 4.5) { startCrash(); return; }
+      const k = Math.floor(P.warn / 0.5); P.warn += dt;
+      if (Math.floor(P.warn / 0.5) > k && k < 2) sfx('warn');
+      if (P.warn >= 2.5) { startCrash(); return; } // clignotements à 0, 0,5 et 1 s, chute à 2,5 s
     }
   }
   if (P.warn < 0) {
@@ -1234,8 +1236,8 @@ function sfx(k, v = 1) {
     const t = actx.currentTime;
     if (k === 'warn') { // bip d'alerte à chaque clignotement rouge
       const o = actx.createOscillator(), og = actx.createGain(); o.type = 'square'; o.frequency.value = 880;
-      og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.16, t + 0.01); og.gain.setValueAtTime(0.16, t + 0.3); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
-      o.connect(og).connect(audioOut); o.start(t); o.stop(t + 0.45); return;
+      og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.16, t + 0.01); og.gain.setValueAtTime(0.16, t + 0.18); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+      o.connect(og).connect(audioOut); o.start(t); o.stop(t + 0.26); return;
     }
     const s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
     s.buffer = noiseBuf; s.connect(f).connect(g).connect(audioOut);
@@ -1386,7 +1388,8 @@ function hud() {
   $('#spd').textContent = Math.round((P.crash ? RC.v : P.v) * KMH); // pendant une chute : la vitesse du pilote qui glisse
   $('#dist').textContent = (P.dist / 1000).toFixed(1).replace('.', ',') + ' km';
   const tp = $('#tip'); tp.hidden = !(P.tip > 0 && !P.crash); if (!tp.hidden) $('#tipFill').style.width = (P.tip * 100).toFixed(1) + '%';
-  tp.classList.toggle('flash', P.warn >= 0 && P.warn < 4.5 && P.warn % 1.5 < 0.5); // 3 clignotements rouges : à 0, 1,5 et 3 s
+  tp.classList.toggle('flash', P.warn >= 0 && P.warn < 1.5 && P.warn % 0.5 < 0.25); // 3 clignotements rouges : à 0, 0,5 et 1 s
+  $('#tipLbl').textContent = P.tip >= 1 ? 'Déséquilibre' : 'Équilibre';
   const w = $('#wheelie');
   if (P.wheelieT > 0.3 && !P.crash) { w.hidden = false; w.textContent = `Wheelie ${Math.round(THREE.MathUtils.radToDeg(P.pitch))}° · ${P.wheelieT.toFixed(1).replace('.', ',')} s`; }
   else w.hidden = true;
