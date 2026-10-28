@@ -383,7 +383,7 @@ const clouds = (() => {
   const wind = crr(-0.3, 0.3); // vent de travers par rapport à la route, un peu de biais
   const list = [];
   for (let i = 0; i < N; i++) {
-    const alt = crr(360, 1000), w = Math.exp(crr(Math.log(200), Math.log(950)));
+    const alt = crr(360, 1000), w = 3 * Math.exp(crr(Math.log(200), Math.log(950))); // 600 m à 2,85 km de large
     const sp = 6 + (alt - 360) / 640 * 14 + crr(0, 8), dir = wind + crr(-0.2, 0.2);
     list.push({ x: crr(-R, R), z: crr(-R, R), y: alt, w, h: w * crr(0.45, 0.6), vx: Math.cos(dir) * sp, vz: Math.sin(dir) * sp, tile: Math.floor(cr() * 8), seed: cr(), op: 1, d: 0 });
   }
