@@ -101,6 +101,7 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 #start .modes button{padding:14px 10px;line-height:1.1;border-radius:18px}
 #start .modes button small{display:block;font:500 11px/1.25 var(--body);letter-spacing:.02em;text-transform:none;margin-top:4px;opacity:.75}
 #start .modes .chase{background:linear-gradient(90deg,#1d4ed8,#d8232a);color:#fff}
+#start .modes .cop{grid-column:1/-1;background:linear-gradient(90deg,#f2f4f6,#c9d4ff);color:#13264f}
 #start .modes .pick{box-shadow:0 0 0 3px rgba(255,255,255,.7)}
 #start .escapes{margin-top:12px;font:600 13px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
 #chase{width:min(260px,70vw);margin:10px auto 0;padding:7px 10px;border-radius:12px;background:rgba(10,14,30,.55);border:1px solid rgba(80,120,255,.5);color:#dfe6ff;letter-spacing:.1em}
@@ -186,7 +187,7 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 <div id="start" hidden>
   <div class="box">
     <h1>Trottinette</h1>
-    <p>Dualtron Storm Limited, route de forêt, circulation réelle. Balade libre, ou course poursuite si tu te fais flasher au-dessus de 110 km/h.</p>
+    <p>Dualtron Storm Limited, route de forêt, circulation réelle. Balade libre, course poursuite si tu te fais flasher au-dessus de 110 km/h, ou à toi de jouer le policier.</p>
     <div class="ctl">
       <div style="grid-column:1/-1"><b>Haut</b>Glisse pour tourner la caméra autour de toi, elle reste où tu la laisses ; le bouton ↺ la remet derrière</div>
       <div><b>Gauche, bas</b>Freins (avant et arrière)</div>
@@ -195,6 +196,7 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
     <div class="modes">
       <button id="go">Chill<small>balade libre</small></button>
       <button id="goChase" class="chase">Course poursuite<small>flashé = la police te poursuit</small></button>
+      <button id="goCop" class="cop">Policier<small>pilote la moto de police et arrête la trottinette en fuite</small></button>
     </div>
     <div class="escapes" id="escapes" hidden></div>
   </div>
@@ -230,6 +232,7 @@ const SC = {
   // vitesses max (vitesse 3, Turbo, 2 moteurs) selon la position : au sol neutre / penché en avant,
   // en wheelie neutre ou en arrière / penché en avant, en wheelie avec la bavette qui fait des étincelles
   vmax: { ground: 145, groundTuck: 180, wheelie: 160, wheelieTuck: 190, scrape: 220 },
+  vmaxCop: { ground: 240, groundTuck: 280, wheelie: 250, wheelieTuck: 280, scrape: 280 }, // mode Policier : la moto
   ecoPower: 0.6, ecoForce: 0.7,
   mu: 0.9,             // adhérence pneu / asphalte sec
   brakeRear: 7.6, brakeBoth: 15.2,  // m/s² (hydrauliques, doublés pour le jeu)
@@ -1174,7 +1177,7 @@ const radar = (() => {
     if (!shot && !P.crash && prevZ >= z && P.z < z) {
       shot = true;
       const kmh = Math.round(P.v * KMH);
-      if (kmh > LIMIT) {
+      if (kmh > LIMIT && !MODE.cop) { // (la police ne se fait pas flasher)
         flashT = 0.35; msgT = 3.5; sfx('flash');
         msg.innerHTML = `Flashé à <b>${kmh}&nbsp;km/h</b> au lieu de ${LIMIT}&nbsp;km/h&nbsp;!!!`; msg.hidden = false;
         fl.classList.remove('on'); void fl.offsetWidth; fl.classList.add('on');
@@ -1197,7 +1200,7 @@ const radar = (() => {
 // vient se coller à côté de nous et, après 2 s collée, le policier nous pousse du pied et on tombe.
 // Pour la semer, il faut rester à plus de 350 m d'elle pendant 5 s d'affilée.
 // ======================================================================
-const MODE = { chase: false };
+const MODE = { chase: false, cop: false };
 const police = (() => {
   const VMAX = 280 / KMH, ESCAPE_D = 350, ESCAPE_T = 5, KICK_T = 2;
   const white = new THREE.MeshPhysicalMaterial({ color: 0xf2f4f6, roughness: 0.28, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.08 });
@@ -1220,70 +1223,75 @@ const police = (() => {
   });
   decal.wrapS = decal.wrapT = THREE.ClampToEdgeWrapping;
   const decalM = new THREE.MeshPhysicalMaterial({ map: decal, roughness: 0.3, clearcoat: 1 });
-  const root = new THREE.Group(), lean = new THREE.Group(); root.add(lean); scene.add(root); root.visible = false;
-  const add = (geo, mat, x, y, z, parent = lean) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
-  // roues de 17" (Ø 64 cm), disques de frein
-  const wheels = [-0.76, 0.74].map(z => {
-    const w = new THREE.Group(); w.position.set(0, 0.32, z); lean.add(w);
-    const t = add(new THREE.TorusGeometry(0.27, 0.055, 12, 32), tireM, 0, 0, 0, w); t.rotation.y = Math.PI / 2; t.scale.set(1, 1, 1.4);
-    const r = add(new THREE.CylinderGeometry(0.22, 0.22, 0.09, 24).rotateZ(Math.PI / 2), dark, 0, 0, 0, w);
-    add(new THREE.CylinderGeometry(0.15, 0.15, 0.01, 24).rotateZ(Math.PI / 2), chrome, 0.06, 0, 0, w);
-    return w;
-  });
-  // fourche, cadre, moteur boxer, échappement
-  for (const s of [-1, 1]) { const f = add(new THREE.CylinderGeometry(0.025, 0.025, 0.62, 10), chrome, s * 0.09, 0.62, -0.66); f.rotation.x = -0.45; }
-  add(new THREE.BoxGeometry(0.34, 0.32, 0.7), dark, 0, 0.5, -0.02);
-  for (const s of [-1, 1]) { const c = add(new THREE.CylinderGeometry(0.075, 0.08, 0.2, 14).rotateZ(Math.PI / 2), chrome, s * 0.25, 0.45, -0.22); }
-  const ex = add(new THREE.CylinderGeometry(0.055, 0.06, 0.55, 14).rotateX(Math.PI / 2), chrome, 0.2, 0.42, 0.55); ex.rotation.x = -0.12;
-  // carénage avant, réservoir, selle, bulle
-  const RB = (w, h, d, r) => new RoundedBoxGeometry(w, h, d, 4, r);
-  const fair = add(RB(0.6, 0.5, 0.5, 0.13), white, 0, 0.93, -0.6); fair.rotation.x = 0.28;      // carénage avant
-  const band = add(RB(0.612, 0.085, 0.512, 0.03), blue, 0, 0.83, -0.6); band.rotation.x = 0.28; // bande bleue
-  const flank = add(RB(0.52, 0.26, 0.62, 0.09), white, 0, 0.64, -0.3);                           // flancs
-  const tank = add(RB(0.36, 0.2, 0.48, 0.08), white, 0, 0.99, -0.12);
-  const fender = add(RB(0.15, 0.05, 0.5, 0.02), white, 0, 0.66, -0.8); fender.rotation.x = -0.15;
-  add(new THREE.BoxGeometry(0.32, 0.09, 0.62), dark, 0, 0.9, 0.33);
-  const screen = add(new THREE.PlaneGeometry(0.46, 0.42), glass, 0, 1.28, -0.74); screen.rotation.x = -0.5; screen.castShadow = false;
-  for (const s of [-1, 1]) { const h = add(new THREE.BoxGeometry(0.1, 0.05, 0.02), headM, s * 0.09, 0.92, -0.9); h.rotation.x = 0.28; }
-  // valises latérales (POLICE, bande bleue et rouge) et top-case
-  for (const s of [-1, 1]) {
-    const p = add(new THREE.BoxGeometry(0.17, 0.34, 0.5), white, s * 0.35, 0.66, 0.56);
-    const d = add(new THREE.PlaneGeometry(0.48, 0.18), decalM, s * 0.437, 0.66, 0.56); d.rotation.y = s * Math.PI / 2; d.castShadow = false;
-  }
-  add(new THREE.BoxGeometry(0.42, 0.3, 0.36), white, 0, 1.06, 0.84);
-  add(new THREE.BoxGeometry(0.43, 0.05, 0.37), blue, 0, 0.98, 0.84);
-  // gyrophares : feux bleus avant (sur le carénage) et barre arrière au-dessus du top-case
-  const strobes = [];
-  for (const s of [-1, 1]) strobes.push(add(new THREE.BoxGeometry(0.06, 0.035, 0.03), s < 0 ? strobeA : strobeB, s * 0.25, 1.0, -0.84));
-  for (const s of [-1, 1]) strobes.push(add(new THREE.BoxGeometry(0.12, 0.05, 0.05), s < 0 ? strobeA : strobeB, s * 0.08, 1.24, 0.92));
-  add(new THREE.BoxGeometry(0.3, 0.04, 0.06), dark, 0, 1.21, 0.92);
-  const glowTex = canvasTex(64, 64, (c, w) => { const gr = c.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(120,150,255,1)'); gr.addColorStop(0.3, 'rgba(40,80,255,.55)'); gr.addColorStop(1, 'rgba(20,40,255,0)'); c.fillStyle = gr; c.fillRect(0, 0, w, w); });
-  const glows = [[-0.25, 1.0, -0.88, strobeA], [0.25, 1.0, -0.88, strobeB], [-0.08, 1.26, 0.96, strobeA], [0.08, 1.26, 0.96, strobeB]].map(([x, y, z, m]) => {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
-    sp.position.set(x, y, z); sp.scale.setScalar(0.85); sp.userData.m = m; lean.add(sp); return sp;
-  });
-  // guidon
-  add(new THREE.CylinderGeometry(0.016, 0.016, 0.78, 8).rotateZ(Math.PI / 2), dark, 0, 1.1, -0.46);
-  // policier : blouson bleu marine, casque blanc, bottes ; la jambe côté trottinette se tend pour pousser
-  const seg = (r0, r1, mat) => { const m = add(new THREE.CylinderGeometry(r1, r0, 1, 12), mat, 0, 0, 0); const j = add(new THREE.SphereGeometry(r0, 12, 8), mat, 0, 0, 0); return (a, b) => { const d = b.clone().sub(a), L = d.length(); m.position.copy(a).add(b).multiplyScalar(0.5); m.scale.set(1, L, 1); m.quaternion.setFromUnitVectors(Y1, d.normalize()); j.position.copy(a); }; };
-  const V = (x, y, z) => new THREE.Vector3(x, y, z);
-  const torsoP = add(new THREE.CapsuleGeometry(0.17, 0.32, 6, 14), navy, 0, 1.28, 0.16); torsoP.rotation.x = -0.32; torsoP.scale.set(1, 1, 0.78);
-  const helm = add(new THREE.SphereGeometry(0.15, 20, 14), helmW, 0, 1.68, 0.02); helm.scale.set(1, 1.05, 1.12);
-  const vis = add(new THREE.SphereGeometry(0.152, 20, 14, Math.PI * 1.15, Math.PI * 0.7, Math.PI * 0.32, Math.PI * 0.26), visorD, 0, 1.68, 0.02); vis.scale.set(1, 1.05, 1.12);
-  const armL = [seg(0.055, 0.048, navy), seg(0.048, 0.04, navy)], armR = [seg(0.055, 0.048, navy), seg(0.048, 0.04, navy)];
-  const legs = { '-1': [seg(0.085, 0.07, navy), seg(0.066, 0.055, bootM)], '1': [seg(0.085, 0.07, navy), seg(0.066, 0.055, bootM)] };
-  const feet = { '-1': add(new THREE.BoxGeometry(0.1, 0.08, 0.27), bootM, 0, 0, 0), '1': add(new THREE.BoxGeometry(0.1, 0.08, 0.27), bootM, 0, 0, 0) };
-  function pose(kickSide, kick) {
+  // modèle (deux exemplaires : la moto qui nous poursuit, et celle du joueur en mode Policier)
+  function build() {
+    const root = new THREE.Group(), lean = new THREE.Group(); root.add(lean);
+    const add = (geo, mat, x, y, z, parent = lean) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+    // roues de 17" (Ø 64 cm), disques de frein
+    const wheels = [-0.76, 0.74].map(z => {
+      const w = new THREE.Group(); w.position.set(0, 0.32, z); lean.add(w);
+      const t = add(new THREE.TorusGeometry(0.27, 0.055, 12, 32), tireM, 0, 0, 0, w); t.rotation.y = Math.PI / 2; t.scale.set(1, 1, 1.4);
+      const r = add(new THREE.CylinderGeometry(0.22, 0.22, 0.09, 24).rotateZ(Math.PI / 2), dark, 0, 0, 0, w);
+      add(new THREE.CylinderGeometry(0.15, 0.15, 0.01, 24).rotateZ(Math.PI / 2), chrome, 0.06, 0, 0, w);
+      return w;
+    });
+    // fourche, cadre, moteur boxer, échappement
+    for (const s of [-1, 1]) { const f = add(new THREE.CylinderGeometry(0.025, 0.025, 0.62, 10), chrome, s * 0.09, 0.62, -0.66); f.rotation.x = -0.45; }
+    add(new THREE.BoxGeometry(0.34, 0.32, 0.7), dark, 0, 0.5, -0.02);
+    for (const s of [-1, 1]) { const c = add(new THREE.CylinderGeometry(0.075, 0.08, 0.2, 14).rotateZ(Math.PI / 2), chrome, s * 0.25, 0.45, -0.22); }
+    const ex = add(new THREE.CylinderGeometry(0.055, 0.06, 0.55, 14).rotateX(Math.PI / 2), chrome, 0.2, 0.42, 0.55); ex.rotation.x = -0.12;
+    // carénage avant, réservoir, selle, bulle
+    const RB = (w, h, d, r) => new RoundedBoxGeometry(w, h, d, 4, r);
+    const fair = add(RB(0.6, 0.5, 0.5, 0.13), white, 0, 0.93, -0.6); fair.rotation.x = 0.28;      // carénage avant
+    const band = add(RB(0.612, 0.085, 0.512, 0.03), blue, 0, 0.83, -0.6); band.rotation.x = 0.28; // bande bleue
+    const flank = add(RB(0.52, 0.26, 0.62, 0.09), white, 0, 0.64, -0.3);                           // flancs
+    const tank = add(RB(0.36, 0.2, 0.48, 0.08), white, 0, 0.99, -0.12);
+    const fender = add(RB(0.15, 0.05, 0.5, 0.02), white, 0, 0.66, -0.8); fender.rotation.x = -0.15;
+    add(new THREE.BoxGeometry(0.32, 0.09, 0.62), dark, 0, 0.9, 0.33);
+    const screen = add(new THREE.PlaneGeometry(0.46, 0.42), glass, 0, 1.28, -0.74); screen.rotation.x = -0.5; screen.castShadow = false;
+    for (const s of [-1, 1]) { const h = add(new THREE.BoxGeometry(0.1, 0.05, 0.02), headM, s * 0.09, 0.92, -0.9); h.rotation.x = 0.28; }
+    // valises latérales (POLICE, bande bleue et rouge) et top-case
     for (const s of [-1, 1]) {
-      const sh = V(s * 0.21, 1.48, 0.06), hand = V(s * 0.36, 1.1, -0.45), el = V(s * 0.3, 1.22, -0.18);
-      (s < 0 ? armL : armR)[0](sh, el); (s < 0 ? armL : armR)[1](el, hand);
-      const hip = V(s * 0.15, 1.0, 0.32);
-      let knee = V(s * 0.24, 0.86, -0.08), foot = V(s * 0.24, 0.42, 0.12);
-      if (s === kickSide && kick > 0) { knee = knee.lerp(V(s * 0.55, 0.84, 0.1), kick); foot = foot.lerp(V(s * 1.0, 0.62, 0.05), kick); }
-      legs[s][0](hip, knee); legs[s][1](knee, foot); feet[s].position.copy(foot).add(V(0, -0.02, -0.08));
+      const p = add(new THREE.BoxGeometry(0.17, 0.34, 0.5), white, s * 0.35, 0.66, 0.56);
+      const d = add(new THREE.PlaneGeometry(0.48, 0.18), decalM, s * 0.437, 0.66, 0.56); d.rotation.y = s * Math.PI / 2; d.castShadow = false;
     }
+    add(new THREE.BoxGeometry(0.42, 0.3, 0.36), white, 0, 1.06, 0.84);
+    add(new THREE.BoxGeometry(0.43, 0.05, 0.37), blue, 0, 0.98, 0.84);
+    // gyrophares : feux bleus avant (sur le carénage) et barre arrière au-dessus du top-case
+    const strobes = [];
+    for (const s of [-1, 1]) strobes.push(add(new THREE.BoxGeometry(0.06, 0.035, 0.03), s < 0 ? strobeA : strobeB, s * 0.25, 1.0, -0.84));
+    for (const s of [-1, 1]) strobes.push(add(new THREE.BoxGeometry(0.12, 0.05, 0.05), s < 0 ? strobeA : strobeB, s * 0.08, 1.24, 0.92));
+    add(new THREE.BoxGeometry(0.3, 0.04, 0.06), dark, 0, 1.21, 0.92);
+    const glowTex = canvasTex(64, 64, (c, w) => { const gr = c.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(120,150,255,1)'); gr.addColorStop(0.3, 'rgba(40,80,255,.55)'); gr.addColorStop(1, 'rgba(20,40,255,0)'); c.fillStyle = gr; c.fillRect(0, 0, w, w); });
+    const glows = [[-0.25, 1.0, -0.88, strobeA], [0.25, 1.0, -0.88, strobeB], [-0.08, 1.26, 0.96, strobeA], [0.08, 1.26, 0.96, strobeB]].map(([x, y, z, m]) => {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+      sp.position.set(x, y, z); sp.scale.setScalar(0.85); sp.userData.m = m; lean.add(sp); return sp;
+    });
+    // guidon
+    add(new THREE.CylinderGeometry(0.016, 0.016, 0.78, 8).rotateZ(Math.PI / 2), dark, 0, 1.1, -0.46);
+    // policier : blouson bleu marine, casque blanc, bottes ; la jambe côté trottinette se tend pour pousser
+    const seg = (r0, r1, mat) => { const m = add(new THREE.CylinderGeometry(r1, r0, 1, 12), mat, 0, 0, 0); const j = add(new THREE.SphereGeometry(r0, 12, 8), mat, 0, 0, 0); return (a, b) => { const d = b.clone().sub(a), L = d.length(); m.position.copy(a).add(b).multiplyScalar(0.5); m.scale.set(1, L, 1); m.quaternion.setFromUnitVectors(Y1, d.normalize()); j.position.copy(a); }; };
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const torsoP = add(new THREE.CapsuleGeometry(0.17, 0.32, 6, 14), navy, 0, 1.28, 0.16); torsoP.rotation.x = -0.32; torsoP.scale.set(1, 1, 0.78);
+    const helm = add(new THREE.SphereGeometry(0.15, 20, 14), helmW, 0, 1.68, 0.02); helm.scale.set(1, 1.05, 1.12);
+    const vis = add(new THREE.SphereGeometry(0.152, 20, 14, Math.PI * 1.15, Math.PI * 0.7, Math.PI * 0.32, Math.PI * 0.26), visorD, 0, 1.68, 0.02); vis.scale.set(1, 1.05, 1.12);
+    const armL = [seg(0.055, 0.048, navy), seg(0.048, 0.04, navy)], armR = [seg(0.055, 0.048, navy), seg(0.048, 0.04, navy)];
+    const legs = { '-1': [seg(0.085, 0.07, navy), seg(0.066, 0.055, bootM)], '1': [seg(0.085, 0.07, navy), seg(0.066, 0.055, bootM)] };
+    const feet = { '-1': add(new THREE.BoxGeometry(0.1, 0.08, 0.27), bootM, 0, 0, 0), '1': add(new THREE.BoxGeometry(0.1, 0.08, 0.27), bootM, 0, 0, 0) };
+    function pose(kickSide, kick) {
+      for (const s of [-1, 1]) {
+        const sh = V(s * 0.21, 1.48, 0.06), hand = V(s * 0.36, 1.1, -0.45), el = V(s * 0.3, 1.22, -0.18);
+        (s < 0 ? armL : armR)[0](sh, el); (s < 0 ? armL : armR)[1](el, hand);
+        const hip = V(s * 0.15, 1.0, 0.32);
+        let knee = V(s * 0.24, 0.86, -0.08), foot = V(s * 0.24, 0.42, 0.12);
+        if (s === kickSide && kick > 0) { knee = knee.lerp(V(s * 0.55, 0.84, 0.1), kick); foot = foot.lerp(V(s * 1.0, 0.62, 0.05), kick); }
+        legs[s][0](hip, knee); legs[s][1](knee, foot); feet[s].position.copy(foot).add(V(0, -0.02, -0.08));
+      }
+    }
+    pose(0, 0);
+    return { root, lean, wheels, glows, pose };
   }
-  pose(0, 0);
+  const { root, lean, wheels, glows, pose } = build(); scene.add(root); root.visible = false;
 
   // état de la poursuite
   const S = { on: false, x: 0, z: 0, v: 0, yaw: 0, roll: 0, side: -1, contact: 0, far: 0, t: 0, kick: 0, stop: false, siren: null, best: 0, escapes: 0 };
@@ -1364,10 +1372,7 @@ const police = (() => {
     root.position.set(S.x, 0, S.z); root.rotation.y = S.yaw; lean.rotation.z = S.roll;
     for (const w of wheels) w.rotation.x -= S.v / 0.32 * dt;
     pose(S.side < 0 ? 1 : -1, S.kick); // la jambe côté trottinette (la trottinette est de l'autre côté de la moto)
-    // gyrophares bleus : éclats alternés gauche/droite
-    const ph = (now / 1000 * 2.4) % 1, a = (ph < 0.12 || (ph > 0.22 && ph < 0.34)) ? 1 : 0, b = (ph > 0.5 && ph < 0.62) || (ph > 0.72 && ph < 0.84) ? 1 : 0;
-    strobeA.emissiveIntensity = a * 9; strobeB.emissiveIntensity = b * 9;
-    for (const g of glows) g.material.opacity = g.userData.m.emissiveIntensity / 9;
+    strobe(now, glows);
     // sirène deux tons, plus forte quand elle est proche
     if (S.siren) {
       const t = actx.currentTime, d = Math.hypot(S.x - P.x, S.z - P.z);
@@ -1384,6 +1389,12 @@ const police = (() => {
       $('#chaseEsc').hidden = S.far <= 0; $('#chaseEsc').textContent = `Tu la sèmes… ${Math.ceil(ESCAPE_T - S.far)} s`;
     }
   }
+  // gyrophares bleus : éclats alternés gauche/droite
+  function strobe(now, gl) {
+    const ph = (now / 1000 * 2.4) % 1, a = (ph < 0.12 || (ph > 0.22 && ph < 0.34)) ? 1 : 0, b = (ph > 0.5 && ph < 0.62) || (ph > 0.72 && ph < 0.84) ? 1 : 0;
+    strobeA.emissiveIntensity = a * 9; strobeB.emissiveIntensity = b * 9;
+    for (const g of gl) g.material.opacity = g.userData.m.emissiveIntensity / 9;
+  }
   function sirenOn(on) {
     if (on && actx && !S.siren) {
       const o = actx.createOscillator(), f = actx.createBiquadFilter(), g = actx.createGain();
@@ -1395,7 +1406,125 @@ const police = (() => {
   // le pilote tombe pendant la poursuite (coup de pied ou chute) : arrêté ; à la fin de la chute, la police repart
   function onPlayerCrash() { if (S.on && !S.stop) { S.stop = true; say(`Après ${fmtT(S.t)} de poursuite`, 'caught'); } }
   function afterCrash() { if (S.on && S.stop) end(); }
-  return { S, start, step, draw, end, onPlayerCrash, afterCrash, shift: s => { S.z += s; } };
+  return { S, start, step, draw, end, onPlayerCrash, afterCrash, shift: s => { S.z += s; }, build, strobe, sirenOn, say, fmtT };
+})();
+// ======================================================================
+// mode Policier : on conduit la moto de police (mêmes commandes, wheelie et stoppie, jusqu'à 280 km/h)
+// et on chasse une trottinette pilotée par l'ordinateur, qui fuit en se faufilant dans la circulation.
+// Rester collé à côté d'elle 2 s : le policier la pousse du pied et elle tombe. Elle s'échappe si elle
+// reste à plus de 500 m devant pendant 5 s ; dans les deux cas, un nouveau suspect apparaît plus loin.
+// ======================================================================
+const cop = (() => {
+  const R_ = 0.32, WB_ = 1.5, KICK_T = 2, ESCAPE_D = 500, ESCAPE_T = 5;
+  const CRUISE = 175 / KMH, PANIC = 215 / KMH;
+  // la trottinette du suspect : copie de la nôtre, pilote penché en avant, sans phare (pas de lumière en plus)
+  poseRider(0.45, 0);
+  const bot = rootG.clone(true); poseRider(0, 0);
+  const lights = []; bot.traverse(o => { if (o.isLight) lights.push(o); }); for (const l of lights) l.parent.remove(l);
+  const bRoll = bot.children[0], bPivot = bRoll.children[0];
+  const bRear = bPivot.children[pivotG.children.indexOf(rearWheel)];
+  const bFrontG = bPivot.children[pivotG.children.indexOf(frontG)], bFront = bFrontG.children[frontG.children.indexOf(frontWheel)];
+  bot.visible = false; scene.add(bot);
+  // la moto du joueur : axe de la roue arrière sur le pivot de la trottinette (wheelie et stoppie au bon endroit)
+  const mine = police.build(); mine.root.position.set(0, -R_, -0.74); mine.root.visible = false; pivotG.add(mine.root);
+  const LINES = [LANES[0], LANES[1], LANE + 1.4, -LANE - 0.5];
+  const B = { on: false, x: 0, z: 0, v: 0, yaw: 0, roll: 0, tx: 0, contact: 0, far: 0, t: 0, down: false, downT: 0, rollDir: 1, kick: 0, wait: 0, arrests: 0 };
+  try { B.arrests = +localStorage.getItem('trott-arrests') || 0; } catch (e) {}
+  function begin() {
+    for (const o of pivotG.children) o.visible = o === mine.root;
+    police.sirenOn(true); spawn(110); police.say('Arrête la trottinette !', 'go');
+  }
+  // nouveau suspect, devant nous sur une voie libre
+  function spawn(ahead) {
+    const z = P.z - ahead;
+    let x = LANES[0];
+    for (const lx of [LANES[0], LANES[1], LANE + 1.4]) if (blockedAt(z + 30, lx, 60) > 55) { x = lx; break; }
+    Object.assign(B, { on: true, down: false, x, tx: x, z, v: Math.max(P.v * 0.95, 90 / KMH), yaw: 0, roll: 0, contact: 0, far: 0, t: 0, downT: 0 });
+    bot.visible = true;
+  }
+  function blockedAt(z, x, ahead) {
+    let lim = Infinity;
+    for (const c of cars) {
+      const dz = z - c.z - c.L / 2 - 1.2;
+      if (dz > -2 && dz < ahead && Math.abs(c.x - x) < c.W / 2 + 0.55) lim = Math.min(lim, dz);
+    }
+    return lim;
+  }
+  function step(dt) {
+    if (B.wait > 0) { B.wait -= dt; if (B.wait <= 0) { spawn(220); police.say('Nouveau suspect !', 'go'); } }
+    if (!B.on) return;
+    B.t += dt;
+    if (B.down) {
+      // à terre : elle glisse sur le côté en raclant, puis on passe au suivant
+      B.v = Math.max(0, B.v - 7 * dt); B.z -= B.v * dt;
+      B.roll = smooth(B.roll, B.rollDir * 1.45, 5, dt);
+      B.downT += dt;
+      if (B.downT > 3.5) { B.on = false; bot.visible = false; B.wait = 0.5; }
+      return;
+    }
+    const gap = P.z - B.z; // > 0 : la trottinette est devant nous
+    // fuite : vitesse de croisière, à fond quand la police est proche
+    let want = gap < 90 ? PANIC : CRUISE;
+    // circulation : elle cherche un passage libre (voies, bande d'arrêt, bande de gauche), sinon elle freine
+    const look = 25 + B.v * 1.3, block = blockedAt(B.z, B.x, look);
+    if (block < look) {
+      let best = null, bestGap = block;
+      for (const x of LINES) { const b = blockedAt(B.z, x, look + 10) - Math.abs(x - B.x) * 2; if (b > bestGap + 6) { bestGap = b; best = x; } }
+      if (best !== null) B.tx = best;
+      else want = Math.min(want, Math.max(0, block - 5) * 0.7 + 6);
+    } else if (!LANES.includes(B.tx)) {
+      // voie dégagée : elle quitte la bande d'arrêt pour revenir sur la voie la plus proche, si elle est libre
+      const lx = Math.abs(B.x - LANES[0]) < Math.abs(B.x - LANES[1]) ? LANES[0] : LANES[1];
+      if (blockedAt(B.z, lx, look) >= look) B.tx = lx;
+    }
+    // police collée à côté : elle s'écarte d'elle
+    const dx = B.x - P.x;
+    if (Math.abs(gap) < 9 && Math.abs(dx) < 3 && !P.crash) B.tx = clamp(B.x + Math.sign(dx || 1) * 2.5, -ROAD_L - 0.2, ROAD_R + 0.2);
+    const accMax = 6.5 * (1 - 0.55 * B.v / PANIC);
+    B.v = clamp(B.v + clamp((want - B.v) * 2, -9, accMax) * dt, 0, PANIC);
+    const vx = clamp((B.tx - B.x) * 2, -4.5, 4.5);
+    B.x = clamp(B.x + vx * dt, -ROAD_L - 0.3, ROAD_R + 0.4); B.z -= B.v * dt;
+    for (const c of cars) if (Math.abs(c.x - B.x) < c.W / 2 + 0.3 && Math.abs(c.z - B.z) < c.L / 2 + 1.1 && B.z > c.z) { B.z = c.z + c.L / 2 + 1.1; B.v = Math.min(B.v, c.v); }
+    B.yaw = smooth(B.yaw, -Math.atan2(vx, Math.max(B.v, 4)), 6, dt);
+    B.roll = smooth(B.roll, clamp(-vx * 0.06, -0.35, 0.35), 5, dt);
+    // collé à côté d'elle (moto et trottinette côte à côte) : coup de pied au bout de 2 s
+    const side = !P.crash && Math.abs((P.z - 0.75) - (B.z - 0.47)) < 1.8 && Math.abs(dx) < 1.9;
+    B.contact = side ? B.contact + dt : Math.max(0, B.contact - dt * 1.5);
+    B.kick = smooth(B.kick, side ? 1 : 0, 6, dt);
+    if (B.contact >= KICK_T) {
+      B.down = true; B.rollDir = Math.sign(dx || 1); B.contact = 0; sfx('hit', 1);
+      B.arrests++; try { localStorage.setItem('trott-arrests', String(B.arrests)); } catch (e) {}
+      police.say(`Arrêtée ! Poursuite de ${police.fmtT(B.t)}`, 'free');
+    }
+    // semé : trop loin devant pendant 5 s
+    B.far = gap > ESCAPE_D ? B.far + dt : 0;
+    if (B.far >= ESCAPE_T) { police.say('Elle t’a semé…', 'caught'); B.on = false; bot.visible = false; B.wait = 2; }
+  }
+  // la moto du joueur (appelé depuis updateScooter) : roues, suspensions, jambe qui pousse, gyrophares
+  function drawPlayer(dt, rearY, frontY) {
+    const [wf, wr] = mine.wheels;
+    wr.position.y = R_ + rearY; wf.position.y = R_ + frontY;
+    const spin = P.v / R_ * dt; if (!P.st) wr.rotation.x -= spin; wf.rotation.x -= spin;
+    mine.pose(B.x > P.x ? 1 : -1, P.crash ? 0 : B.kick);
+    police.strobe(performance.now(), mine.glows);
+  }
+  function draw(dt, now) {
+    if (!B.on) { $('#chase').hidden = true; return; }
+    bot.position.set(B.x, 0, B.z); bot.rotation.y = B.yaw; bRoll.rotation.z = B.roll;
+    const spin = B.v / R * dt; bRear.rotation.x -= spin; bFront.rotation.x -= spin;
+    // sirène : la nôtre, à volume constant
+    const sr = police.S.siren;
+    if (sr) { const t = actx.currentTime; sr.o.frequency.setTargetAtTime(Math.floor(now / 550) % 2 ? 435 : 580, t, 0.01); sr.g.gain.setTargetAtTime(0.045, t, 0.05); }
+    const gap = P.z - B.z, ch = $('#chase');
+    ch.hidden = B.down; if (!B.down) {
+      $('#chaseD').textContent = Math.abs(gap) < 3 ? 'Suspect collé !' : gap > 0 ? `Suspect à ${Math.round(gap)} m` : `Suspect derrière (${Math.round(-gap)} m)`;
+      $('#chaseT').textContent = police.fmtT(B.t);
+      $('#chaseFill').style.width = (B.contact / KICK_T * 100).toFixed(0) + '%';
+      $('#chaseBar').hidden = B.contact <= 0.01;
+      $('#chaseEsc').hidden = B.far <= 0; $('#chaseEsc').textContent = `Elle t’échappe… ${Math.ceil(ESCAPE_T - B.far)} s`;
+    }
+  }
+  return { B, R: R_, WB: WB_, begin, step, draw, drawPlayer, shift: s => { B.z += s; } };
 })();
 
 // ======================================================================
@@ -1426,13 +1555,13 @@ function physics(dt) {
   const resist = drag + rollR;
   // moteurs : force limitée au démarrage par le couple, puis par la puissance ; le contrôleur bride selon la vitesse choisie
   const pf = P.turbo ? 1 : SC.ecoPower, ff = P.turbo ? 1 : SC.ecoForce;
-  const cap = SC.gearCap[P.gear] / KMH;
+  const cap = (MODE.cop ? 290 : SC.gearCap[P.gear]) / KMH;
   const capK = clamp((cap - v) / 1.2, 0, 1);
   const airborne = P.pitch > 1e-4;
   // vitesse max visée selon la position ; la roue arrière doit pouvoir y arriver seule (à haute vitesse la traînée,
   // qui pousse en hauteur, déleste l'avant), puis le contrôleur bride pile à cette vitesse.
   // Le démarrage reste limité par le couple comme avant ; Eco et 1 moteur restent moins rapides.
-  const VM = SC.vmax, fwd = Math.max(0, P.lean);
+  const VM = MODE.cop ? SC.vmaxCop : SC.vmax, fwd = Math.max(0, P.lean);
   const vt = (P.scrape ? VM.scrape : airborne ? lerp(VM.wheelie, VM.wheelieTuck, fwd) : lerp(VM.ground, VM.groundTuck, fwd)) / KMH;
   const Fneed = 0.5 * SC.rho * CdA * vt * vt + SC.Crr * m * G;
   const forceMax = Math.max(SC.forcePeak, Fneed * 1.05) * ff;
@@ -1542,13 +1671,14 @@ function physics(dt) {
     if (P.scrape && !P.antiFlip) P.tip = Math.min(1, P.tip + dt / 6); else P.tip = Math.max(0, P.tip - dt / 1);
     if (P.tip >= 1 && pulling && IN.throttle) { P.warn = 0; sfx('warn'); }
   }
-  // contact avec les voitures : simple choc
+  // contact avec les voitures : simple choc (centre et demi-longueur du véhicule : trottinette ou moto)
+  const bc = MODE.cop ? 0.75 : 0.47, bl = MODE.cop ? 0.95 : 0.62;
   for (const c of cars) {
-    const ox = (c.W / 2 + 0.3) - Math.abs(P.x - c.x), oz = (c.L / 2 + 0.62) - Math.abs((P.z - 0.47) - c.z);
+    const ox = (c.W / 2 + 0.3) - Math.abs(P.x - c.x), oz = (c.L / 2 + bl) - Math.abs((P.z - bc) - c.z);
     if (ox <= 0 || oz <= 0) continue;
     if (oz < ox) { // par l'avant ou l'arrière
-      if (P.z - 0.47 > c.z) { P.z = c.z + c.L / 2 + 1.1; P.v = Math.min(P.v, c.v) * 0.8; }    // je percute la voiture devant
-      else { P.z = c.z - c.L / 2 - 0.16; P.v = Math.max(P.v, c.v * 0.95 + 1); c.v *= 0.9; } // elle me percute
+      if (P.z - bc > c.z) { P.z = c.z + c.L / 2 + bc + bl; P.v = Math.min(P.v, c.v) * 0.8; }    // je percute la voiture devant
+      else { P.z = c.z - c.L / 2 - (bl - bc) - 0.01; P.v = Math.max(P.v, c.v * 0.95 + 1); c.v *= 0.9; } // elle me percute
     } else { P.x += Math.sign(P.x - c.x) * ox; P.yaw += Math.sign(P.x - c.x) * -0.15; P.v *= 0.9; }
     hitFx(1);
   }
@@ -1655,6 +1785,7 @@ function crashPhysics(dt) {
   P.x += -Math.sin(P.yaw) * P.v * dt; P.z += -Math.cos(P.yaw) * P.v * dt;
   P.x = clamp(P.x, -ROAD_L - 0.4, ROAD_R + 0.5); crashG.position.x = clamp(crashG.position.x, -ROAD_L - 0.35, ROAD_R + 0.45);
   P.dist += P.v * dt; P.wheelieT = 0;
+  if (MODE.cop) { crashG.position.x = P.x; crashG.position.z = P.z; RC.v = P.v; } // le policier reste sur sa moto : la caméra la suit
   P.crashAge += dt;
   if (RC.v < 0.3 && P.v < 0.3) P.crashT += dt;
   if (P.crashT > 1.8) endCrash();
@@ -1932,7 +2063,7 @@ function recycle() {
     for (const c of cars) c.z += s;
     crashG.position.z += s;
     clouds.shift(s);
-    radar.shift(s); radarPrevZ += s; police.shift(s); SU.shift(s);
+    radar.shift(s); radarPrevZ += s; police.shift(s); cop.shift(s); SU.shift(s);
   }
 }
 function updateScooter(dt) {
@@ -1940,8 +2071,10 @@ function updateScooter(dt) {
   rollG.rotation.z = P.roll;
   // caisse portée par les suspensions (pivot à l'axe arrière), roues qui suivent la route sous elle
   const su = SU.S, attR = su.y - SU.b * su.p, attF = su.y + SU.a * su.p;
-  pivotG.position.set(0, R + attR, 0); pivotG.rotation.x = P.pitch + (P.crash ? 0 : su.p);
-  if (P.st && !P.crash) { const sa = P.st.a; pivotG.position.y += WB * Math.sin(sa); pivotG.position.z = -WB * (1 - Math.cos(sa)); pivotG.rotation.x -= sa; } // bascule autour de la roue avant
+  const VR = MODE.cop ? cop.R : R, VWB = MODE.cop ? cop.WB : WB; // mode Policier : roues et empattement de la moto
+  pivotG.position.set(0, VR + attR, 0); pivotG.rotation.x = P.pitch + (P.crash ? 0 : su.p);
+  if (P.st && !P.crash) { const sa = P.st.a; pivotG.position.y += VWB * Math.sin(sa); pivotG.position.z = -VWB * (1 - Math.cos(sa)); pivotG.rotation.x -= sa; } // bascule autour de la roue avant
+  if (MODE.cop) cop.drawPlayer(dt, SU.W.R.y - attR, P.pitch > 1e-4 ? Math.max(-0.05, SU.W.F.y - attF) : SU.W.F.y - attF);
   rearWheel.position.y = SU.W.R.y - attR; frontWheel.position.y = P.pitch > 1e-4 ? Math.max(-0.05, SU.W.F.y - attF) : SU.W.F.y - attF;
   const spin = P.v / R * dt; if (!P.st) rearWheel.rotation.x -= spin; if (P.pitch === 0) frontWheel.rotation.x -= spin; else frontWheel.rotation.x -= spin * 0.98;
   frontG.rotation.y = -P.steer * 0.18 * (P.v < 8 ? 1 : 0.4);
@@ -1997,7 +2130,7 @@ const STEP = 1 / 120;
 function step(dt) {
   keyInput();
   hitCool = Math.max(0, hitCool - dt);
-  if (started) { if (P.crash) crashPhysics(dt); else { physics(dt); if (!P.crash) SU.step(dt); } updateCars(dt); police.step(dt); }
+  if (started) { if (P.crash) crashPhysics(dt); else { physics(dt); if (!P.crash) SU.step(dt); } updateCars(dt); police.step(dt); cop.step(dt); }
 }
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -2005,7 +2138,7 @@ function frame(now) {
   radarPrevZ = P.z;
   while (acc >= STEP && n < 8) { step(STEP); acc -= STEP; n++; }
   if (n === 8) acc = 0;
-  radar.update(dt, radarPrevZ); police.draw(dt, now); recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); clouds.update(dt, camera.position); hud(); updateAudio();
+  radar.update(dt, radarPrevZ); police.draw(dt, now); cop.draw(dt, now); recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); clouds.update(dt, camera.position); hud(); updateAudio();
   renderer.render(scene, camera);
   // résolution adaptative (mode par défaut) : vise 60 i/s, ne descend pas sous 30
   fpsT += dt; fpsN++;
@@ -2023,16 +2156,19 @@ initCars();
 updateScooter(0); updateCamera(1);
 camFx = P.x;
 $('#loading').hidden = true; $('#start').hidden = false;
-// deux modes : Chill (balade) ou Course poursuite (?mode=poursuite pour y aller directement)
-function go(chase) { audioInit(); MODE.chase = chase; $('#start').hidden = true; started = true; }
-$('#go').addEventListener('click', () => go(false));
-$('#goChase').addEventListener('click', () => go(true));
-if (police.S.escapes) { $('#escapes').hidden = false; $('#escapes').textContent = `Poursuites semées : ${police.S.escapes}`; }
+// trois modes : Chill (balade), Course poursuite (?mode=poursuite) ou Policier (?mode=policier)
+function go(mode) { audioInit(); MODE.chase = mode === 'chase'; MODE.cop = mode === 'cop'; if (MODE.cop) cop.begin(); $('#start').hidden = true; started = true; }
+$('#go').addEventListener('click', () => go('chill'));
+$('#goChase').addEventListener('click', () => go('chase'));
+$('#goCop').addEventListener('click', () => go('cop'));
+const scores = [police.S.escapes && `Poursuites semées : ${police.S.escapes}`, cop.B.arrests && `Trottinettes arrêtées : ${cop.B.arrests}`].filter(Boolean);
+if (scores.length) { $('#escapes').hidden = false; $('#escapes').textContent = scores.join(' · '); }
 if (/mode=poursuite/.test(location.search)) $('#goChase').classList.add('pick');
+if (/mode=policier/.test(location.search)) $('#goCop').classList.add('pick');
 requestAnimationFrame(frame);
 
 // outils de test (seulement avec ?debug dans l'adresse)
-if (location.search.includes('debug')) window.__g = { SU, P, IN, camOrbit, clouds, radar, police, MODE, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
+if (location.search.includes('debug')) window.__g = { SU, P, IN, camOrbit, clouds, radar, police, cop, MODE, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: mode => { if (mode) return go(mode); started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
 </script>
 </body>
 </html>
