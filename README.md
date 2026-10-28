@@ -1,6 +1,6 @@
 # Trottinette
 
-Balade libre en Dualtron Storm Limited sur une route de forêt infinie, à deux voies dans le même sens, avec de la circulation. Jeu web en 3D (three.js), en mode portrait, pensé pour iPhone.
+Balade libre en Dualtron Storm Limited sur une route de forêt infinie, une chaussée de 2x2 voies à la française (bande de 1 m à gauche, 2 voies de 3,5 m, bande d'arrêt d'urgence de 3 m, marquages T1 et T4), avec de la circulation. Jeu web en 3D (three.js), en mode portrait, pensé pour iPhone.
 
 Pour jouer : https://gab22222.github.io/trottinette/
 
