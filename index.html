@@ -1459,7 +1459,7 @@ function physics(dt) {
     }
     thrust = tEst; a = (Fr + Ff - resist - Fb) / m;
     // la roue avant se lève quand le couple de la poussée (+ le bras qui tire) dépasse celui du poids
-    if (pulling && thrust * h + pull > G * d + 0.05) { P.pitchV = Math.max(P.pitchV, 0.05); P.pitch = 1e-3; }
+    if (pulling && !P.st && thrust * h + pull > G * d + 0.05) { P.pitchV = Math.max(P.pitchV, 0.05); P.pitch = 1e-3; }
   } else {
     thrust = (Fr - rollR - Fb) / m; a = (Fr - resist - Fb) / m;
   }
@@ -1486,9 +1486,31 @@ function physics(dt) {
     P.scrape = pulling && P.pitch >= PITCH_MAX - 0.012 ? 1 : 0; // la bavette reste au contact tant qu'on est (presque) en butée
     if (P.pitch <= 0) { SU.land(Math.min(0, P.pitchV) * WB); if (P.pitchV < -1.2) sfx('land', Math.min(1, -P.pitchV / 4)); P.pitch = 0; P.pitchV = 0; }
   }
+  // stoppie : freins tenus depuis plus de 50 km/h, en passant sous 50 km/h l'arrière se lève et la trottinette
+  // bascule sur sa roue avant. Rotation autour du contact avant : la décélération (appliquée au centre de gravité,
+  // en hauteur) fait basculer vers l'avant, le poids (derrière l'axe avant) ramène en arrière ; le pilote dose
+  // le frein avant pour tenir la trottinette penchée (~16°), puis l'arrière redescend à l'arrêt ou au lâcher des freins
+  if (IN.both && v > 50 / KMH) P.stopArm = true; else if (!IN.both) P.stopArm = false;
+  if (!P.st && P.stopArm && v <= 50 / KMH && P.pitch === 0) { P.st = { a: 0, av: 0, down: false, t: 0 }; P.stopArm = false; }
+  if (P.st) {
+    const S = P.st, a0 = WB - d, k2f = a0 * a0 + h * h + 0.06;
+    if (!S.down && (!IN.both || IN.throttle || v < 1.2)) { S.down = true; S.t = 0; S.a0 = S.a; }
+    if (S.down) {
+      // retour sur deux roues en 0,45 s, en douceur
+      S.t += dt; const u = Math.min(1, S.t / 0.45), prev = S.a;
+      S.a = S.a0 * (1 + Math.cos(Math.PI * u)) / 2; S.av = (S.a - prev) / dt;
+      a = -(resist + (IN.both ? SC.brakeRear * m : 0)) / m;
+      if (u >= 1) { SU.landRear(S.av * WB); sfx('land', 0.5); P.st = null; }
+    } else {
+      const c = Math.cos(S.a), sn = Math.sin(S.a), xcg = a0 * c - h * sn, ycg = a0 * sn + h * c;
+      const dec = clamp((G * xcg + k2f * (40 * (0.28 - S.a) - 12 * S.av)) / ycg, 0, SC.brakeBoth);
+      S.av += ((dec * ycg - G * xcg) / k2f) * dt; S.a = clamp(S.a + S.av * dt, 0, 0.5);
+      a = -dec - resist / m;
+    }
+  }
   P.v = Math.max(0, v + a * dt);
   // direction : rayon limité par l'adhérence à grande vitesse et par l'angle du guidon à basse vitesse
-  const auth = P.pitch > 0.05 ? 0.35 : 1;
+  const auth = P.pitch > 0.05 || P.st ? 0.35 : 1;
   const yawMax = Math.min(0.85 * G / Math.max(P.v, 1.5), Math.max(P.v, 0.6) * Math.tan(THREE.MathUtils.degToRad(32)) / WB);
   let yawRate = -P.steer * yawMax * auth * 4; // maniabilité x4 (bien plus vif que la vraie trottinette, pour le jeu)
   if (Math.abs(IN.steer) < 0.05) P.yaw *= 1 - dt * 0.35; // petite aide pour rester dans l'axe de la route
@@ -1568,7 +1590,7 @@ const SU = (() => {
   }
   function step(dt) {
     const ax = (P.v - S.prevV) / dt; S.prevV = P.v;
-    const air = P.pitch > 1e-4, fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+    const air = P.pitch > 1e-4, airR = !!P.st, fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
     const rF = roadH(P.x + fx * WB, P.z + fz * WB), rR = roadH(P.x, P.z);
     W.F.roadV = (rF - W.F.road) / dt; W.R.roadV = (rR - W.R.road) / dt; W.F.road = rF; W.R.road = rR;
     const n = 8, h = dt / n;
@@ -1578,7 +1600,7 @@ const SU = (() => {
       let fy = -ms * G, mp = air ? 0 : clamp(ms * ax * hcg, -0.8 * W.R.F0 * WB, 0.8 * W.F.F0 * WB);
       for (const w of [W.F, W.R]) {
         const att = S.y + w.x * S.p, vatt = S.vy + w.x * S.vp;
-        if (air && w === W.F) { w.y = att - w.sag; w.v = vatt; w.acc = 0; w.fs = 0; w.ft = 0; w.c = w.sag; continue; } // en wheelie : fourche en pleine détente, roue pendante
+        if ((air && w === W.F) || (airR && w === W.R)) { w.y = att - w.sag; w.v = vatt; w.acc = 0; w.fs = 0; w.ft = 0; w.c = w.sag; continue; } // roue en l'air (wheelie ou stoppie) : suspension en pleine détente
         const c = w.sag + w.y - att, dc = w.v - vatt;           // compression du ressort et sa vitesse
         let fs = w.k * c + (dc > 0 ? w.cc : w.cr) * dc;
         if (c < 0) fs += 8 * w.k * c + 3 * w.cr * Math.min(0, dc);  // butée de détente (caoutchouc)
@@ -1589,7 +1611,7 @@ const SU = (() => {
         fy += fs; mp += w.x * fs;
       }
       S.vy += fy / ms * h; S.y += S.vy * h;
-      if (air) { S.vp = 0; S.p *= 1 - 6 * h; } // en wheelie, la caisse tourne avec la trottinette autour de l'axe arrière
+      if (air || airR) { S.vp = 0; S.p *= 1 - 6 * h; } // sur une roue, la caisse tourne avec la trottinette
       else { S.vp += mp / I * h; S.p += S.vp * h; }
       for (const w of [W.F, W.R]) { w.v += w.acc * h; w.y += w.v * h; }
     }
@@ -1597,14 +1619,15 @@ const SU = (() => {
   }
   // atterrissage d'un wheelie : la roue avant arrive sur le sol avec la vitesse verticale du nez
   function land(vy) { W.F.v += vy; }
+  function landRear(vy) { W.R.v += vy; }
   function reset() { Object.assign(S, { y: 0, vy: 0, p: 0, vp: 0, prevV: P.v }); for (const w of [W.F, W.R]) Object.assign(w, { y: 0, v: 0 }); }
-  return { S, W, step, land, reset, roadH, a, b, shift: s => { S.shift += s; } };
+  return { S, W, step, land, landRear, reset, roadH, a, b, shift: s => { S.shift += s; } };
 })();
 const crashG = new THREE.Group(), crashPitch = new THREE.Group(); crashG.add(crashPitch); scene.add(crashG);
 const RC = { v: 0, rot: 0, rotV: 0, rot0: 0, spin: 0 };
 function startCrash(kicked = false) {
   $('#fall').textContent = kicked ? 'Arrêté !' : 'Chute !'; police.onPlayerCrash();
-  P.crash = 1; P.crashT = 0; P.crashAge = 0; P.tip = 0; P.warn = -1; P.scrape = 0;
+  P.crash = 1; P.crashT = 0; P.crashAge = 0; P.tip = 0; P.warn = -1; P.scrape = 0; P.st = null;
   // le pilote quitte la trottinette en gardant sa position et son inclinaison
   crashG.position.set(P.x, R, P.z); crashG.rotation.set(0, P.yaw, 0); crashPitch.rotation.set(P.pitch, 0, 0);
   crashPitch.add(riderG); poseRider(-1, 0);
@@ -1635,7 +1658,7 @@ function crashPhysics(dt) {
 function endCrash() {
   // on repart à l'arrêt, là où le pilote a fini sa glissade
   P.x = clamp(crashG.position.x, -LANE, LANE); P.z = crashG.position.z;
-  Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, warn: -1, scrape: 0, desc: null });
+  Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, warn: -1, scrape: 0, desc: null, st: null, stopArm: false });
   pivotG.add(riderG); riderG.position.set(0, 0, 0); riderG.rotation.set(0, 0, 0);
   $('#fall').hidden = true; $('#replay').hidden = true;
   police.afterCrash(); SU.reset();
@@ -1913,9 +1936,10 @@ function updateScooter(dt) {
   rollG.rotation.z = P.roll;
   // caisse portée par les suspensions (pivot à l'axe arrière), roues qui suivent la route sous elle
   const su = SU.S, attR = su.y - SU.b * su.p, attF = su.y + SU.a * su.p;
-  pivotG.position.y = R + attR; pivotG.rotation.x = P.pitch + (P.crash ? 0 : su.p);
+  pivotG.position.set(0, R + attR, 0); pivotG.rotation.x = P.pitch + (P.crash ? 0 : su.p);
+  if (P.st && !P.crash) { const sa = P.st.a; pivotG.position.y += WB * Math.sin(sa); pivotG.position.z = -WB * (1 - Math.cos(sa)); pivotG.rotation.x -= sa; } // bascule autour de la roue avant
   rearWheel.position.y = SU.W.R.y - attR; frontWheel.position.y = P.pitch > 1e-4 ? Math.max(-0.05, SU.W.F.y - attF) : SU.W.F.y - attF;
-  const spin = P.v / R * dt; rearWheel.rotation.x -= spin; if (P.pitch === 0) frontWheel.rotation.x -= spin; else frontWheel.rotation.x -= spin * 0.98;
+  const spin = P.v / R * dt; if (!P.st) rearWheel.rotation.x -= spin; if (P.pitch === 0) frontWheel.rotation.x -= spin; else frontWheel.rotation.x -= spin * 0.98;
   frontG.rotation.y = -P.steer * 0.18 * (P.v < 8 ? 1 : 0.4);
   if (!P.crash) poseRider(P.lean, P.steer);
   headLight.intensity = 0;
@@ -1959,7 +1983,8 @@ function hud() {
   tp.classList.toggle('flash', P.warn >= 0 && P.warn < 1.5 && P.warn % 0.5 < 0.25); // 3 clignotements rouges : à 0, 0,5 et 1 s
   $('#tipLbl').textContent = P.tip >= 1 ? 'Déséquilibre' : 'Équilibre';
   const w = $('#wheelie');
-  if (P.wheelieT > 0.3 && !P.crash) { w.hidden = false; w.textContent = `Wheelie ${Math.round(THREE.MathUtils.radToDeg(P.pitch))}° · ${P.wheelieT.toFixed(1).replace('.', ',')} s`; }
+  if (P.st && !P.crash && P.st.a > 0.03) { w.hidden = false; w.textContent = `Stoppie ${Math.round(THREE.MathUtils.radToDeg(P.st.a))}°`; }
+  else if (P.wheelieT > 0.3 && !P.crash) { w.hidden = false; w.textContent = `Wheelie ${Math.round(THREE.MathUtils.radToDeg(P.pitch))}° · ${P.wheelieT.toFixed(1).replace('.', ',')} s`; }
   else w.hidden = true;
 }
 let last = performance.now(), acc = 0, fpsT = 0, fpsN = 0, radarPrevZ = 0;
