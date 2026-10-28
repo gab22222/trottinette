@@ -1001,7 +1001,7 @@ function physics(dt) {
   // direction : rayon limité par l'adhérence à grande vitesse et par l'angle du guidon à basse vitesse
   const auth = P.pitch > 0.05 ? 0.35 : 1;
   const yawMax = Math.min(0.85 * G / Math.max(P.v, 1.5), Math.max(P.v, 0.6) * Math.tan(THREE.MathUtils.degToRad(32)) / WB);
-  let yawRate = -P.steer * yawMax * auth * 2; // maniabilité doublée (plus vif que la vraie trottinette, pour le jeu)
+  let yawRate = -P.steer * yawMax * auth * 4; // maniabilité x4 (bien plus vif que la vraie trottinette, pour le jeu)
   if (Math.abs(IN.steer) < 0.05) P.yaw *= 1 - dt * 0.35; // petite aide pour rester dans l'axe de la route
   P.yaw = clamp(P.yaw + yawRate * dt, -1.1, 1.1);
   P.x += -Math.sin(P.yaw) * P.v * dt; P.z += -Math.cos(P.yaw) * P.v * dt;
@@ -1161,10 +1161,10 @@ try { localStorage.removeItem('trott-modes'); } catch (e) {}
 // graphismes : adaptatif (par défaut, vise 60 i/s) ou qualité manuelle jusqu'à la définition native de l'écran
 // ======================================================================
 const NATIVE = Math.max(1, window.devicePixelRatio || 1);
-// preset : part de la définition de l'écran ; par défaut le jeu démarre en Preset Low
-// (Medium quand on revient dans ce mode depuis un autre) ; le choix n'est enregistré que quand on le change
+// preset : part de la définition de l'écran ; par défaut le jeu démarre en Preset Medium
+// (Medium aussi quand on revient dans ce mode depuis un autre) ; le choix n'est enregistré que quand on le change
 const PRESETS = { low: 0.3, medium: 0.5, high: 0.7, ultra: 1 };
-const gfx = { mode: 'preset', ratio: Math.min(DPR, 1.6), preset: 'low' };
+const gfx = { mode: 'preset', ratio: Math.min(DPR, 1.6), preset: 'medium' };
 try {
   localStorage.removeItem('trott-gfx'); // anciens réglages enregistrés automatiquement : on repart du nouveau défaut
   const sg = JSON.parse(localStorage.getItem('trott-gfx2') || 'null');
