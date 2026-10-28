@@ -1486,25 +1486,24 @@ function physics(dt) {
     P.scrape = pulling && P.pitch >= PITCH_MAX - 0.012 ? 1 : 0; // la bavette reste au contact tant qu'on est (presque) en butée
     if (P.pitch <= 0) { SU.land(Math.min(0, P.pitchV) * WB); if (P.pitchV < -1.2) sfx('land', Math.min(1, -P.pitchV / 4)); P.pitch = 0; P.pitchV = 0; }
   }
-  // stoppie : freins tenus depuis plus de 50 km/h, en passant sous 50 km/h l'arrière se lève et la trottinette
-  // bascule sur sa roue avant. Rotation autour du contact avant : la décélération (appliquée au centre de gravité,
-  // en hauteur) fait basculer vers l'avant, le poids (derrière l'axe avant) ramène en arrière ; le pilote dose
-  // le frein avant pour tenir la trottinette penchée (~16°), puis l'arrière redescend à l'arrêt ou au lâcher des freins
-  if (IN.both && v > 50 / KMH) P.stopArm = true; else if (!IN.both) P.stopArm = false;
-  if (!P.st && P.stopArm && v <= 50 / KMH && P.pitch === 0) { P.st = { a: 0, av: 0, down: false, t: 0 }; P.stopArm = false; }
+  // stoppie (réglé pour le jeu) : freins tenus depuis plus de 120 km/h, en passant sous 120 km/h l'arrière se lève
+  // et la trottinette bascule sur sa roue avant jusqu'à 45°, tenue jusqu'à l'arrêt en freinant fort sur la roue avant,
+  // puis l'arrière redescend à l'arrêt ou au lâcher des freins
+  if (IN.both && v > 120 / KMH) P.stopArm = true; else if (!IN.both) P.stopArm = false;
+  if (!P.st && P.stopArm && v <= 120 / KMH && P.pitch === 0) { P.st = { a: 0, av: 0, down: false, t: 0 }; P.stopArm = false; }
   if (P.st) {
-    const S = P.st, a0 = WB - d, k2f = a0 * a0 + h * h + 0.06;
+    const S = P.st, TARGET = THREE.MathUtils.degToRad(45);
     if (!S.down && (!IN.both || IN.throttle || v < 1.2)) { S.down = true; S.t = 0; S.a0 = S.a; }
     if (S.down) {
-      // retour sur deux roues en 0,45 s, en douceur
-      S.t += dt; const u = Math.min(1, S.t / 0.45), prev = S.a;
+      // retour sur deux roues en 0,8 s, en douceur
+      S.t += dt; const u = Math.min(1, S.t / 0.8), prev = S.a;
       S.a = S.a0 * (1 + Math.cos(Math.PI * u)) / 2; S.av = (S.a - prev) / dt;
       a = -(resist + (IN.both ? SC.brakeRear * m : 0)) / m;
       if (u >= 1) { SU.landRear(S.av * WB); sfx('land', 0.5); P.st = null; }
     } else {
-      const c = Math.cos(S.a), sn = Math.sin(S.a), xcg = a0 * c - h * sn, ycg = a0 * sn + h * c;
-      const dec = clamp((G * xcg + k2f * (40 * (0.28 - S.a) - 12 * S.av)) / ycg, 0, SC.brakeBoth);
-      S.av += ((dec * ycg - G * xcg) / k2f) * dt; S.a = clamp(S.a + S.av * dt, 0, 0.5);
+      // montée amortie vers 45° (~0,8 s), freinage fort sur la roue avant tant que l'arrière monte, puis tenu
+      S.av += (22 * (TARGET - S.a) - 9 * S.av) * dt; S.a = clamp(S.a + S.av * dt, 0, THREE.MathUtils.degToRad(50));
+      const dec = S.a < TARGET * 0.8 ? SC.brakeBoth * 0.75 : 7;
       a = -dec - resist / m;
     }
   }
