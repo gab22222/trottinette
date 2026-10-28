@@ -1012,7 +1012,7 @@ function physics(dt) {
   P.dist += P.v * dt;
   if (P.pitch > THREE.MathUtils.degToRad(4)) P.wheelieT += dt; else if (P.pitch === 0) P.wheelieT = 0;
   P.susp = smooth(P.susp, 0, 8, dt);
-  // bavette au sol : sans capteur anti-retournement, la jauge d'équilibre monte en 8 s et se vide en 1 s ;
+  // bavette au sol : sans capteur anti-retournement, la jauge d'équilibre monte en 6 s et se vide en 1 s ;
   // pleine, elle clignote en rouge 3 fois (toutes les 0,5 s) et, 1,5 s après le 3e clignotement,
   // le pilote bascule s'il tient toujours le doigt vers le bas avec les gaz (sinon l'alerte s'arrête et la jauge redescend)
   if (P.warn >= 0) {
@@ -1025,7 +1025,7 @@ function physics(dt) {
     }
   }
   if (P.warn < 0) {
-    if (P.scrape && !P.antiFlip) P.tip = Math.min(1, P.tip + dt / 8); else P.tip = Math.max(0, P.tip - dt / 1);
+    if (P.scrape && !P.antiFlip) P.tip = Math.min(1, P.tip + dt / 6); else P.tip = Math.max(0, P.tip - dt / 1);
     if (P.tip >= 1 && pulling && IN.throttle) { P.warn = 0; sfx('warn'); }
   }
   // contact avec les voitures : simple choc
