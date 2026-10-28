@@ -250,6 +250,199 @@ sunL.shadow.bias = -0.0004; sunL.shadow.normalBias = 0.03;
 scene.add(sunL, sunL.target);
 
 // ======================================================================
+// nuages : cumulus peints une fois au chargement (formes en bulles + bruit), éclairés en direct
+// selon le soleil (ombre propre, liseré lumineux à contre-jour), bords qui évoluent lentement ;
+// chacun a sa taille, son altitude et sa vitesse (plus haut = plus vite)
+// ======================================================================
+const clouds = (() => {
+  let cs = 7031; const cr = () => { cs = (cs * 1664525 + 1013904223) >>> 0; return cs / 4294967296; };
+  const crr = (a, b) => a + cr() * (b - a);
+  // bruit de valeur (périodique si besoin) + fBm
+  const hash = (x, y, s) => { let h = (x * 374761393 + y * 668265263 + s * 2147483647) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const vnoise = (x, y, s, per = 0) => {
+    const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+    const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+    const w = i => per ? ((i % per) + per) % per : i;
+    const a = hash(w(xi), w(yi), s), b = hash(w(xi + 1), w(yi), s), c = hash(w(xi), w(yi + 1), s), d = hash(w(xi + 1), w(yi + 1), s);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  };
+  const fbm = (x, y, s, oct, per = 0) => { let t = 0, amp = 0.5, f = 1, n = 0; for (let o = 0; o < oct; o++) { t += vnoise(x * f, y * f, s + o, per ? per * f : 0) * amp; n += amp; amp *= 0.5; f *= 2; } return t / n; };
+
+  // atlas de 8 formes (2 × 4), chaque case est 2 fois plus large que haute.
+  // Chaque forme est un chou-fleur de sphères sur 3 niveaux (grosses bulles, puis bulles posées dessus, puis petites) :
+  // R = opacité, G = relief (épaisseur de la sphère la plus en avant), qui sert à l'éclairage dans le shader
+  const TW = 384, TH = 192, AW = TW * 2, AH = TH * 4, HMAX = 0.36;
+  const atlas = new Uint8Array(AW * AH * 2);
+  const hb = new Float32Array(TW * TH);
+  for (let t = 0; t < 8; t++) {
+    const ox = (t % 2) * TW, oy = Math.floor(t / 2) * TH, sd = 11 + t * 7;
+    const flat = t === 5 || t === 7, tower = t === 0 || t === 3;
+    const y0 = 0.14, blobs = [];
+    const nb = flat ? 8 : Math.round(crr(3, 5));
+    for (let i = 0; i < nb; i++) {
+      const r = flat ? crr(0.09, 0.14) : crr(0.17, 0.27) * (tower && i === Math.floor(nb / 2) ? 1.25 : 1);
+      blobs.push([lerp(0.4, 1.6, (i + crr(0.25, 0.75)) / nb), y0 + r * crr(0.35, 0.6), r]);
+    }
+    // les bulles poussent surtout vers le haut, comme un cumulus qui bourgeonne
+    const grow = (from, count, k0, k1, upOnly) => {
+      for (let i = 0; i < count; i++) {
+        const p = from[Math.floor(cr() * from.length)];
+        const ang = upOnly ? crr(0.15, Math.PI - 0.15) : crr(-0.35, Math.PI + 0.35);
+        const r = p[2] * crr(k0, k1), cx = p[0] + Math.cos(ang) * p[2] * 0.82, cy = p[1] + Math.sin(ang) * p[2] * (flat ? 0.55 : 0.82);
+        if (cy - r < y0 - 0.02 || cy + r > 0.9 || cx - r < 0.1 || cx + r > 1.9) continue;
+        blobs.push([cx, cy, r]);
+      }
+    };
+    const l0 = blobs.slice();
+    grow(l0, flat ? 10 : tower ? 16 : 11, 0.45, 0.68, true);
+    const l1 = blobs.slice(l0.length);
+    grow(l1.length ? l1 : l0, flat ? 26 : 34, 0.3, 0.48, false);
+    grow(blobs.slice(), 40, 0.16, 0.26, false);
+    grow(blobs.slice(), 70, 0.1, 0.16, false); // petites boursouflures du chou-fleur
+    hb.fill(0);
+    for (const [cx, cy, r] of blobs) {
+      const x0 = Math.max(0, Math.floor((cx - r) * TH)), x1 = Math.min(TW - 1, Math.ceil((cx + r) * TH));
+      const ya = Math.max(0, Math.floor((cy - r) * TH)), yb = Math.min(TH - 1, Math.ceil((cy + r) * TH));
+      for (let py = ya; py <= yb; py++) for (let px = x0; px <= x1; px++) {
+        const dx = px / TH - cx, dy = py / TH - cy, q = r * r - dx * dx - dy * dy;
+        if (q > 0) { const h = Math.sqrt(q); if (h > hb[py * TW + px]) hb[py * TW + px] = h; }
+      }
+    }
+    for (let py = 0; py < TH; py++) for (let px = 0; px < TW; px++) {
+      const x = px / TH, y = py / TH;
+      const H = hb[py * TW + px];
+      const n = fbm(x * 9, y * 9, sd, 4), n2 = fbm(x * 28, y * 28, sd + 40, 3), n3 = fbm(x * 3.5, y * 3.5, sd + 80, 3);
+      // relief bosselé sur les bulles, base plate un peu effilochée, bords doux rongés par le bruit
+      const base = THREE.MathUtils.smoothstep(y, y0 - 0.035 + (n - 0.5) * 0.035, y0 + 0.035);
+      const h = H > 0 ? Math.max(0, H * (0.75 + 0.5 * n3) + (n - 0.5) * 0.012) * base : 0;
+      const e = H > 0 ? (H * base) + (n - 0.5) * 0.05 + (n2 - 0.5) * 0.02 : -1;
+      const a = THREE.MathUtils.smoothstep(e, 0.0, 0.07);
+      const i = ((oy + py) * AW + ox + px) * 2;
+      atlas[i] = a * 255; atlas[i + 1] = clamp(h / HMAX, 0, 1) * 255;
+    }
+  }
+  const aTex = new THREE.DataTexture(atlas, AW, AH, THREE.RGFormat);
+  aTex.minFilter = THREE.LinearMipmapLinearFilter; aTex.magFilter = THREE.LinearFilter; aTex.generateMipmaps = true; aTex.needsUpdate = true;
+  // bruit périodique qui déforme doucement les bords au fil du temps
+  const NS = 128, nd = new Uint8Array(NS * NS * 2);
+  for (let y = 0; y < NS; y++) for (let x = 0; x < NS; x++) {
+    nd[(y * NS + x) * 2] = fbm(x / 16, y / 16, 3, 3, 8) * 255; nd[(y * NS + x) * 2 + 1] = fbm(x / 16, y / 16, 9, 3, 8) * 255;
+  }
+  const nTex = new THREE.DataTexture(nd, NS, NS, THREE.RGFormat);
+  nTex.wrapS = nTex.wrapT = THREE.RepeatWrapping; nTex.magFilter = nTex.minFilter = THREE.LinearFilter; nTex.needsUpdate = true;
+
+  const N = 150, R = 3800;
+  const geo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0));
+  const aPos = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3), aSize = new THREE.InstancedBufferAttribute(new Float32Array(N * 2), 2), aData = new THREE.InstancedBufferAttribute(new Float32Array(N * 4), 4);
+  for (const a of [aPos, aSize, aData]) a.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('iPos', aPos); geo.setAttribute('iSize', aSize); geo.setAttribute('iData', aData); geo.instanceCount = N;
+  const wind = crr(-0.3, 0.3); // vent de travers par rapport à la route, un peu de biais
+  const list = [];
+  for (let i = 0; i < N; i++) {
+    const alt = crr(360, 1000), w = Math.exp(crr(Math.log(200), Math.log(950)));
+    const sp = 6 + (alt - 360) / 640 * 14 + crr(0, 8), dir = wind + crr(-0.2, 0.2);
+    list.push({ x: crr(-R, R), z: crr(-R, R), y: alt, w, h: w * crr(0.45, 0.6), vx: Math.cos(dir) * sp, vz: Math.sin(dir) * sp, tile: Math.floor(cr() * 8), seed: cr(), op: 1, d: 0 });
+  }
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false,
+    uniforms: {
+      uAtlas: { value: aTex }, uNoise: { value: nTex }, uTime: { value: 0 },
+      uSun: { value: sun.clone().normalize() },
+      uLit: { value: new THREE.Color(1.0, 0.95, 0.86).multiplyScalar(3.0) },
+      uShade: { value: new THREE.Color(0.36, 0.43, 0.58).multiplyScalar(1.45) },
+      uHaze: { value: new THREE.Color(0xb8c6cf).multiplyScalar(1.25) },
+    },
+    vertexShader: /* glsl */`
+      attribute vec3 iPos; attribute vec2 iSize; attribute vec4 iData;
+      uniform vec3 uSun;
+      varying vec2 vUv; varying vec3 vSunB; varying vec3 vDir; varying vec4 vData;
+      void main() {
+        vec3 fwd = normalize(cameraPosition - iPos);
+        vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), fwd)), up = cross(fwd, right);
+        vec3 wp = iPos + right * position.x * iSize.x + up * position.y * iSize.y;
+        vUv = uv; vData = iData; vDir = wp - cameraPosition;
+        // au-delà de la distance d'affichage, le nuage est rapproché et réduit d'autant : même place, même taille à l'écran
+        wp = cameraPosition + vDir * min(1.0, 2300.0 / length(iPos - cameraPosition));
+        vSunB = vec3(dot(uSun, right), dot(uSun, up), dot(uSun, fwd)); // soleil dans le repère du nuage (z vers la caméra)
+        gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+      }`,
+    fragmentShader: /* glsl */`
+      uniform sampler2D uAtlas, uNoise; uniform float uTime; uniform vec3 uSun, uLit, uShade, uHaze;
+      varying vec2 vUv; varying vec3 vSunB; varying vec3 vDir; varying vec4 vData;
+      vec2 warp;
+      vec2 at(vec2 uv, float bias) {
+        uv = clamp(uv + warp, vec2(0.002), vec2(0.998));
+        return texture2D(uAtlas, (vData.xy + uv) * vec2(0.5, 0.25), bias).rg;
+      }
+      void main() {
+        vec2 n = texture2D(uNoise, vUv * vec2(2.0, 1.0) + vData.z * 7.0 + vec2(uTime * 0.005, uTime * 0.002)).rg - 0.5;
+        warp = n * vec2(0.012, 0.024);
+        vec2 c = at(vUv, 0.0);
+        // frange vaporeuse autour des bords (éteinte au bord de la case pour ne pas déborder sur la forme voisine)
+        float halo = at(vUv, 3.0).r * 0.55 * smoothstep(0.0, 0.06, vUv.y) * smoothstep(1.0, 0.9, vUv.y) * smoothstep(0.0, 0.04, vUv.x) * smoothstep(1.0, 0.96, vUv.x);
+        if (max(c.r, halo) < 0.01) discard;
+        // relief : normale à partir du champ de hauteur des bulles
+        vec2 e = vec2(2.5 / 384.0, 2.5 / 192.0);
+        float hx = at(vUv + vec2(e.x, 0.0), 0.0).g - at(vUv - vec2(e.x, 0.0), 0.0).g;
+        float hy = at(vUv + vec2(0.0, e.y), 0.0).g - at(vUv - vec2(0.0, e.y), 0.0).g;
+        vec3 N = normalize(vec3(-hx * 2.2, -hy * 2.2, 0.15));
+        vec3 S = normalize(vSunB);
+        float lam = clamp((dot(N, S) + 0.25) / 1.25, 0.0, 1.0);
+        // ombre portée des bulles voisines côté soleil (rayon qui monte au-dessus du relief)
+        vec2 sd = S.xy / max(length(S.xy), 0.2) * vec2(0.5, 1.0);
+        float rise = S.z / max(length(S.xy), 0.2) / 0.36; // montée du rayon, en unités de relief
+        float sh = 0.0;
+        for (int i = 1; i <= 4; i++) {
+          float t = float(i) * 0.022;
+          sh += max(0.0, at(vUv + sd * t, 0.0).g - c.g - rise * t);
+        }
+        float shadow = exp(-sh * 7.0);
+        // creux entre les bulles : moins de ciel qui les éclaire
+        float hBlur = at(vUv, 3.5).g;
+        float ao = clamp(0.72 + (c.g - hBlur) * 2.6 + c.g * 0.35, 0.42, 1.1);
+        float light = lam * shadow;
+        // ciel bleu sur les faces tournées vers le haut, plus sombre dessous
+        vec3 amb = uShade * ao * (0.8 + 0.35 * N.y);
+        vec3 col = amb + uLit * light * mix(0.85, 1.0, ao);
+        col *= mix(0.68, 1.0, smoothstep(0.0, 0.35, vUv.y)); // dessous plat plus gris
+        vec3 V = normalize(vDir);
+        float mu = max(dot(V, uSun), 0.0);
+        // à contre-jour : bords fins lumineux (diffusion vers l'avant)
+        float thin = exp(-c.g * 6.0) * (1.4 - c.r * 0.6);
+        col += uLit * (pow(mu, 30.0) * 2.6 + pow(mu, 7.0) * 0.9 + pow(mu, 2.0) * 0.12) * thin;
+        float haze = 1.0 - smoothstep(0.0, 0.22, V.y);
+        col = mix(col, uHaze, haze * 0.55);
+        gl_FragColor = vec4(col, max(c.r, halo) * vData.w);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
+  const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.renderOrder = -1;
+  scene.add(mesh);
+  const order = list.map((_, i) => i);
+  function update(dt, cam) {
+    mat.uniforms.uTime.value += dt;
+    for (const c of list) {
+      c.x += c.vx * dt; c.z += c.vz * dt;
+      // les nuages restent dans un carré de 7,6 km autour de la caméra ; ils apparaissent et disparaissent en fondu sur les bords
+      if (c.x - cam.x > R) c.x -= 2 * R; else if (c.x - cam.x < -R) c.x += 2 * R;
+      if (c.z - cam.z > R) c.z -= 2 * R; else if (c.z - cam.z < -R) c.z += 2 * R;
+      const e = Math.max(Math.abs(c.x - cam.x), Math.abs(c.z - cam.z));
+      c.op = 1 - THREE.MathUtils.smoothstep(e, R * 0.8, R * 0.98);
+      c.d = (c.x - cam.x) ** 2 + (c.y - cam.y) ** 2 + (c.z - cam.z) ** 2;
+    }
+    order.sort((a, b) => list[b].d - list[a].d); // du plus loin au plus proche
+    order.forEach((k, i) => {
+      const c = list[k];
+      aPos.setXYZ(i, c.x, c.y, c.z); aSize.setXY(i, c.w, c.h);
+      aData.setXYZW(i, c.tile % 2, Math.floor(c.tile / 2), c.seed, c.op);
+    });
+    aPos.needsUpdate = aSize.needsUpdate = aData.needsUpdate = true;
+  }
+  return { update, shift: s => { for (const c of list) c.z += s; }, list, mat };
+})();
+
+// ======================================================================
 // textures générées (pas de fichier à télécharger)
 // ======================================================================
 function canvasTex(w, h, draw, srgb = true, repeat = [1, 1]) {
@@ -1110,6 +1303,7 @@ function recycle() {
     for (const c of chunks) c.position.z += s;
     for (const c of cars) c.z += s;
     crashG.position.z += s;
+    clouds.shift(s);
   }
 }
 function updateScooter(dt) {
@@ -1172,7 +1366,7 @@ function frame(now) {
   acc += dt; let n = 0;
   while (acc >= STEP && n < 8) { step(STEP); acc -= STEP; n++; }
   if (n === 8) acc = 0;
-  recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); hud(); updateAudio();
+  recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); clouds.update(dt, camera.position); hud(); updateAudio();
   renderer.render(scene, camera);
   // résolution adaptative (mode par défaut) : vise 60 i/s, ne descend pas sous 30
   fpsT += dt; fpsN++;
@@ -1194,7 +1388,7 @@ $('#go').addEventListener('click', () => { audioInit(); $('#start').hidden = tru
 requestAnimationFrame(frame);
 
 // outils de test (seulement avec ?debug dans l'adresse)
-if (location.search.includes('debug')) window.__g = { P, IN, camOrbit, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
+if (location.search.includes('debug')) window.__g = { P, IN, camOrbit, clouds, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
 </script>
 </body>
 </html>
