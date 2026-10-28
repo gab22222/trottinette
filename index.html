@@ -75,6 +75,9 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 #tip{width:min(240px,62vw);margin:10px auto 0;color:#ffd7cf;letter-spacing:.16em}
 #tip .tipbar{margin-top:5px;height:9px;border-radius:5px;background:rgba(10,14,20,.55);border:1px solid rgba(255,255,255,.25);overflow:hidden}
 #tipFill{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffc23a,#ff5a3c);box-shadow:0 0 10px #ff5a3c}
+#tip.flash span{color:#ff3626}
+#tip.flash .tipbar{border-color:#ff8f80;box-shadow:0 0 22px #ff2414}
+#tip.flash #tipFill{background:#ff2414;box-shadow:0 0 16px #ff2414}
 #fall{position:fixed;z-index:4;left:0;right:0;top:38%;text-align:center;font:700 64px/1 var(--display);letter-spacing:.04em;text-transform:uppercase;color:#ff6a4a;text-shadow:0 4px 24px rgba(0,0,0,.6);pointer-events:none}
 #wheelie{display:inline-block;margin-top:6px;padding:4px 10px;border-radius:999px;background:rgba(255,176,46,.22);color:#fff1d6;border:1px solid rgba(255,176,46,.55);letter-spacing:.12em}
 #home{text-decoration:none;min-width:0;opacity:.75}
@@ -903,7 +906,7 @@ function drawCars() {
 // ======================================================================
 // physique de la trottinette
 // ======================================================================
-const P = { x: LANES[0] + 0.4, z: 0, yaw: 0, v: 0, pitch: 0, pitchV: 0, roll: 0, lean: 0, steer: 0, gear: 3, turbo: true, dual: true, antiFlip: false, dist: 0, wheelieT: 0, susp: 0, scrape: 0, shake: 0, tip: 0, crash: 0, crashT: 0 };
+const P = { x: LANES[0] + 0.4, z: 0, yaw: 0, v: 0, pitch: 0, pitchV: 0, roll: 0, lean: 0, steer: 0, gear: 3, turbo: true, dual: true, antiFlip: false, dist: 0, wheelieT: 0, susp: 0, scrape: 0, shake: 0, tip: 0, warn: -1, crash: 0, crashT: 0 };
 const IN = { throttle: 0, steer: 0, lean: 0, rear: 0, both: 0 };
 const PITCH_MAX = THREE.MathUtils.degToRad(50); // l'arrière du plateau touche le sol
 const DESCENT_T = 1.5; // s : retour sur les deux roues quand on lâche la gâchette en wheelie
@@ -1003,9 +1006,22 @@ function physics(dt) {
   P.dist += P.v * dt;
   if (P.pitch > THREE.MathUtils.degToRad(4)) P.wheelieT += dt; else if (P.pitch === 0) P.wheelieT = 0;
   P.susp = smooth(P.susp, 0, 8, dt);
-  // bavette au sol : sans capteur anti-retournement, la jauge de déséquilibre monte en 5 s puis le pilote bascule
-  if (P.scrape && !P.antiFlip) P.tip = Math.min(1, P.tip + dt / 5); else P.tip = Math.max(0, P.tip - dt / 2);
-  if (P.tip >= 1) { startCrash(); return; }
+  // bavette au sol : sans capteur anti-retournement, la jauge de déséquilibre monte en 5 s ;
+  // pleine, elle clignote en rouge 3 fois (toutes les 1,5 s) et, 1,5 s après le 3e clignotement,
+  // le pilote bascule s'il tient toujours le doigt vers le bas avec les gaz (sinon l'alerte s'arrête et la jauge redescend)
+  if (P.warn >= 0) {
+    if (!(pulling && IN.throttle)) P.warn = -1;
+    else {
+      P.tip = 1;
+      const k = Math.floor(P.warn / 1.5); P.warn += dt;
+      if (Math.floor(P.warn / 1.5) > k && k < 2) sfx('warn');
+      if (P.warn >= 4.5) { startCrash(); return; }
+    }
+  }
+  if (P.warn < 0) {
+    if (P.scrape && !P.antiFlip) P.tip = Math.min(1, P.tip + dt / 5); else P.tip = Math.max(0, P.tip - dt / 2);
+    if (P.tip >= 1 && pulling && IN.throttle) { P.warn = 0; sfx('warn'); }
+  }
   // contact avec les voitures : simple choc
   for (const c of cars) {
     const ox = (c.W / 2 + 0.3) - Math.abs(P.x - c.x), oz = (c.L / 2 + 0.62) - Math.abs((P.z - 0.47) - c.z);
@@ -1020,7 +1036,7 @@ function physics(dt) {
 const crashG = new THREE.Group(), crashPitch = new THREE.Group(); crashG.add(crashPitch); scene.add(crashG);
 const RC = { v: 0, rot: 0, rotV: 0, rot0: 0, spin: 0 };
 function startCrash() {
-  P.crash = 1; P.crashT = 0; P.tip = 0; P.scrape = 0;
+  P.crash = 1; P.crashT = 0; P.tip = 0; P.warn = -1; P.scrape = 0;
   // le pilote quitte la trottinette en gardant sa position et son inclinaison
   crashG.position.set(P.x, R, P.z); crashG.rotation.set(0, P.yaw, 0); crashPitch.rotation.set(P.pitch, 0, 0);
   crashPitch.add(riderG); poseRider(-1, 0);
@@ -1050,7 +1066,7 @@ function crashPhysics(dt) {
 function endCrash() {
   // on repart à l'arrêt, là où le pilote a fini sa glissade
   P.x = clamp(crashG.position.x, -LANE, LANE); P.z = crashG.position.z;
-  Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, scrape: 0, desc: null });
+  Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, warn: -1, scrape: 0, desc: null });
   pivotG.add(riderG); riderG.position.set(0, 0, 0); riderG.rotation.set(0, 0, 0);
   $('#fall').hidden = true;
 }
@@ -1208,7 +1224,13 @@ let audioOut = null, scrapeGain = null;
 function sfx(k, v = 1) {
   if (!actx || !audioOut) return;
   try {
-    const t = actx.currentTime, s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+    const t = actx.currentTime;
+    if (k === 'warn') { // bip d'alerte à chaque clignotement rouge
+      const o = actx.createOscillator(), og = actx.createGain(); o.type = 'square'; o.frequency.value = 880;
+      og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.16, t + 0.01); og.gain.setValueAtTime(0.16, t + 0.3); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+      o.connect(og).connect(audioOut); o.start(t); o.stop(t + 0.45); return;
+    }
+    const s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
     s.buffer = noiseBuf; s.connect(f).connect(g).connect(audioOut);
     if (k === 'hit') { f.type = 'lowpass'; f.frequency.value = 900; g.gain.setValueAtTime(0.9 * v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35); }
     else if (k === 'land') { f.type = 'lowpass'; f.frequency.value = 500; g.gain.setValueAtTime(0.5 * v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2); }
@@ -1350,6 +1372,7 @@ function hud() {
   $('#spd').textContent = Math.round(P.v * KMH);
   $('#dist').textContent = (P.dist / 1000).toFixed(1).replace('.', ',') + ' km';
   const tp = $('#tip'); tp.hidden = !(P.tip > 0 && !P.crash); if (!tp.hidden) $('#tipFill').style.width = (P.tip * 100).toFixed(1) + '%';
+  tp.classList.toggle('flash', P.warn >= 0 && P.warn < 4.5 && P.warn % 1.5 < 0.5); // 3 clignotements rouges : à 0, 1,5 et 3 s
   const w = $('#wheelie');
   if (P.wheelieT > 0.3 && !P.crash) { w.hidden = false; w.textContent = `Wheelie ${Math.round(THREE.MathUtils.radToDeg(P.pitch))}° · ${P.wheelieT.toFixed(1).replace('.', ',')} s`; }
   else w.hidden = true;
