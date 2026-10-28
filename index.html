@@ -1472,7 +1472,7 @@ function physics(dt) {
     const u = Math.min(1, D.t / DESCENT_T);
     P.pitch = D.p0 * (1 + Math.cos(Math.PI * u)) / 2;
     P.pitchV = (P.pitch - prev) / dt; P.scrape = 0;
-    if (u >= 1) { P.pitch = 0; P.pitchV = 0; P.desc = null; P.susp = 0.03; sfx('land', 0.35); }
+    if (u >= 1) { SU.land(P.pitchV * WB); P.pitch = 0; P.pitchV = 0; P.desc = null; sfx('land', 0.35); }
   } else if (P.pitch > 0) {
     P.desc = null; // gaz remis pendant la descente : la physique reprend là où on en est
     // wheelie : rotation autour de la roue arrière, équilibre quand le centre de gravité passe au-dessus du contact
@@ -1484,7 +1484,7 @@ function physics(dt) {
     const top = pulling ? PITCH_MAX : PITCH_MAX - 0.1; // doigt pas tiré vers le bas : le pilote retient avant que la bavette touche
     if (P.pitch >= top) { P.pitch = top; P.pitchV = Math.min(0, P.pitchV) - 0.3; }
     P.scrape = pulling && P.pitch >= PITCH_MAX - 0.012 ? 1 : 0; // la bavette reste au contact tant qu'on est (presque) en butée
-    if (P.pitch <= 0) { if (P.pitchV < -1.2) { P.susp = Math.min(0.06, -P.pitchV * 0.02); sfx('land', Math.min(1, -P.pitchV / 4)); } P.pitch = 0; P.pitchV = 0; }
+    if (P.pitch <= 0) { SU.land(Math.min(0, P.pitchV) * WB); if (P.pitchV < -1.2) sfx('land', Math.min(1, -P.pitchV / 4)); P.pitch = 0; P.pitchV = 0; }
   }
   P.v = Math.max(0, v + a * dt);
   // direction : rayon limité par l'adhérence à grande vitesse et par l'angle du guidon à basse vitesse
@@ -1500,7 +1500,6 @@ function physics(dt) {
   P.roll = smooth(P.roll, clamp(Math.atan(P.v * yawRate / G), -0.7, 0.7), 7, dt);
   P.dist += P.v * dt;
   if (P.pitch > THREE.MathUtils.degToRad(4)) P.wheelieT += dt; else if (P.pitch === 0) P.wheelieT = 0;
-  P.susp = smooth(P.susp, 0, 8, dt);
   // bavette au sol : sans capteur anti-retournement, la jauge d'équilibre monte en 6 s et se vide en 1 s ;
   // pleine, elle clignote en rouge 3 fois (toutes les 0,5 s) et, 1,5 s après le 3e clignotement,
   // le pilote bascule s'il tient toujours le doigt vers le bas avec les gaz (sinon l'alerte s'arrête et la jauge redescend)
@@ -1528,6 +1527,76 @@ function physics(dt) {
     hitFx(1);
   }
 }
+// ======================================================================
+// suspensions avant et arrière : amortisseurs hydrauliques réglables de la Storm Limited, montés sur bras oscillants.
+// Modèle à 4 degrés de liberté calculé 960 fois par seconde : la caisse (pompage et tangage, avec le pilote)
+// repose sur deux ressorts-amortisseurs (amortissement plus fort en détente qu'en compression, butées en fin de course),
+// et chaque roue (moteur-roue lourd, ~8,5 kg) repose sur son pneu 11" qui fait lui aussi ressort et peut décoller.
+// La route a un vrai profil : rugosité de l'enrobé, joints, rustines et nids-de-poule, marquages en relief,
+// bande d'arrêt d'urgence plus abîmée, gravier du bas-côté. Le freinage fait plonger l'avant, l'accélération
+// écrase l'arrière ; en wheelie la fourche se détend, et l'atterrissage la fait plonger puis rebondir.
+// ======================================================================
+const SU = (() => {
+  const ms = SC.mass - 17 + SC.rider;          // masse suspendue : trottinette sans ses roues + pilote
+  const b = 0.5, a = WB - b, hcg = 1.0, I = 26; // centre de gravité : 50 cm devant l'axe arrière, à 1 m du sol ; inertie en tangage
+  const mw = 8.5, kt = 120000, ct = 120;        // roue (moteur-roue + pneu) et raideur du pneu 11"
+  const mk = (k, cc, cr, travel, x, F0) => ({ k, cc, cr, travel, x, F0, sag: F0 / k, tsag: (F0 + mw * G) / kt, y: 0, v: 0, road: 0, roadV: 0, fs: F0, ft: F0 + mw * G, c: F0 / k, acc: 0 });
+  const W = { F: mk(34000, 900, 1400, 0.055, a, ms * G * b / WB), R: mk(40000, 1000, 1500, 0.05, -b, ms * G * a / WB) };
+  const S = { y: 0, vy: 0, p: 0, vp: 0, shift: 0, prevV: 0, thump: 0 };
+  const hash = n => { let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+  // hauteur de la route (m) sous un point : za = position absolue le long de la route (indépendante du recentrage)
+  function roadH(x, z) {
+    const za = z - S.shift;
+    // enrobé : ondulations de quelques mm, plus grandes sur les grandes longueurs d'onde
+    let h = 0.0007 * Math.sin(za * 12.6 + x * 1.1) + 0.0012 * Math.sin(za * 4.83 + 1.3 + x * 0.6) + 0.002 * Math.sin(za * 2.03 + 2.1) + 0.003 * Math.sin(za * 0.81 + 0.7 + x * 0.15);
+    // bande d'arrêt d'urgence plus abîmée ; bas-côté en gravier, plus bas que la chaussée
+    if (x > LANE + 0.2 && x <= ROAD_R) h += 0.0025 * Math.sin(za * 9.1 + x * 3) + 0.002 * Math.sin(za * 21.7 + x * 5.3);
+    if (x > ROAD_R + 0.05 || x < -ROAD_L - 0.05) h += 0.004 * Math.sin(za * 15 + x * 7) + 0.0025 * Math.sin(za * 27.3 + x * 11) - 0.012;
+    // tous les 41 m : un joint transversal, une rustine ou un nid-de-poule dans une voie
+    const cell = Math.floor(za / 41), u = za - cell * 41, r = hash(cell), dz = u - 20;
+    if (r < 0.45) { if (Math.abs(dz) < 0.12) h += 0.006 * (1 - Math.abs(dz) / 0.12); }
+    else if (r < 0.6) { if (dz > -0.6 && dz < 0.6 && Math.abs(x - (r < 0.52 ? 1.75 : -1.75)) < 0.9) h += 0.005; }
+    else if (r < 0.72) { const dx = x - (r < 0.66 ? 1.75 : -1.75), q = dz * dz / 0.12 + dx * dx / 0.2; if (q < 1) h -= 0.02 * (1 - q); }
+    // marquages thermocollés en relief (2,5 mm)
+    if (Math.abs(x) < 0.075 && ((-z % 13) + 13) % 13 < 3) h += 0.0025;
+    if (Math.abs(x + LANE + 0.1125) < 0.1125) h += 0.0025;
+    if (Math.abs(x - LANE - 0.1125) < 0.1125 && ((-z % 52) + 52) % 52 < 39) h += 0.0025;
+    return h;
+  }
+  function step(dt) {
+    const ax = (P.v - S.prevV) / dt; S.prevV = P.v;
+    const air = P.pitch > 1e-4, fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+    const rF = roadH(P.x + fx * WB, P.z + fz * WB), rR = roadH(P.x, P.z);
+    W.F.roadV = (rF - W.F.road) / dt; W.R.roadV = (rR - W.R.road) / dt; W.F.road = rF; W.R.road = rR;
+    const n = 8, h = dt / n;
+    for (let i = 0; i < n; i++) {
+      // transfert de charge (plongée au freinage, écrasement à l'accélération), limité pour que les deux roues restent au sol :
+      // c'est la physique du wheelie qui décide quand l'avant se lève
+      let fy = -ms * G, mp = air ? 0 : clamp(ms * ax * hcg, -0.8 * W.R.F0 * WB, 0.8 * W.F.F0 * WB);
+      for (const w of [W.F, W.R]) {
+        const att = S.y + w.x * S.p, vatt = S.vy + w.x * S.vp;
+        if (air && w === W.F) { w.y = att - w.sag; w.v = vatt; w.acc = 0; w.fs = 0; w.ft = 0; w.c = w.sag; continue; } // en wheelie : fourche en pleine détente, roue pendante
+        const c = w.sag + w.y - att, dc = w.v - vatt;           // compression du ressort et sa vitesse
+        let fs = w.k * c + (dc > 0 ? w.cc : w.cr) * dc;
+        if (c < 0) fs += 8 * w.k * c + 3 * w.cr * Math.min(0, dc);  // butée de détente (caoutchouc)
+        if (c > w.travel) { fs += 8 * w.k * (c - w.travel) + 3 * w.cc * Math.max(0, dc); if (dc > 0.35 && S.thump <= 0) { S.thump = 0.25; sfx('land', Math.min(1, dc / 1.5)); } } // butée de compression
+        const tc = (w === W.F && air) ? -1 : w.tsag + w.road - w.y;  // roue avant en l'air pendant un wheelie
+        const ft = tc > 0 ? Math.max(0, kt * tc + ct * (w.roadV - w.v)) : 0;
+        w.acc = (ft - fs - mw * G) / mw; w.fs = fs; w.ft = ft; w.c = c;
+        fy += fs; mp += w.x * fs;
+      }
+      S.vy += fy / ms * h; S.y += S.vy * h;
+      if (air) { S.vp = 0; S.p *= 1 - 6 * h; } // en wheelie, la caisse tourne avec la trottinette autour de l'axe arrière
+      else { S.vp += mp / I * h; S.p += S.vp * h; }
+      for (const w of [W.F, W.R]) { w.v += w.acc * h; w.y += w.v * h; }
+    }
+    S.thump -= dt;
+  }
+  // atterrissage d'un wheelie : la roue avant arrive sur le sol avec la vitesse verticale du nez
+  function land(vy) { W.F.v += vy; }
+  function reset() { Object.assign(S, { y: 0, vy: 0, p: 0, vp: 0, prevV: P.v }); for (const w of [W.F, W.R]) Object.assign(w, { y: 0, v: 0 }); }
+  return { S, W, step, land, reset, roadH, a, b, shift: s => { S.shift += s; } };
+})();
 const crashG = new THREE.Group(), crashPitch = new THREE.Group(); crashG.add(crashPitch); scene.add(crashG);
 const RC = { v: 0, rot: 0, rotV: 0, rot0: 0, spin: 0 };
 function startCrash(kicked = false) {
@@ -1566,7 +1635,7 @@ function endCrash() {
   Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, warn: -1, scrape: 0, desc: null });
   pivotG.add(riderG); riderG.position.set(0, 0, 0); riderG.rotation.set(0, 0, 0);
   $('#fall').hidden = true; $('#replay').hidden = true;
-  police.afterCrash();
+  police.afterCrash(); SU.reset();
 }
 // bouton play : 3 s après le début de la chute, pour repartir sans attendre la fin de la glissade
 $('#replay').addEventListener('click', () => { audioInit(); if (P.crash) { RC.v = 0; endCrash(); } });
@@ -1833,13 +1902,16 @@ function recycle() {
     for (const c of cars) c.z += s;
     crashG.position.z += s;
     clouds.shift(s);
-    radar.shift(s); radarPrevZ += s; police.shift(s);
+    radar.shift(s); radarPrevZ += s; police.shift(s); SU.shift(s);
   }
 }
 function updateScooter(dt) {
   rootG.position.set(P.x, 0, P.z); rootG.rotation.y = P.yaw;
   rollG.rotation.z = P.roll;
-  pivotG.position.y = R - P.susp * 0.4; pivotG.rotation.x = P.pitch;
+  // caisse portée par les suspensions (pivot à l'axe arrière), roues qui suivent la route sous elle
+  const su = SU.S, attR = su.y - SU.b * su.p, attF = su.y + SU.a * su.p;
+  pivotG.position.y = R + attR; pivotG.rotation.x = P.pitch + (P.crash ? 0 : su.p);
+  rearWheel.position.y = SU.W.R.y - attR; frontWheel.position.y = P.pitch > 1e-4 ? Math.max(-0.05, SU.W.F.y - attF) : SU.W.F.y - attF;
   const spin = P.v / R * dt; rearWheel.rotation.x -= spin; if (P.pitch === 0) frontWheel.rotation.x -= spin; else frontWheel.rotation.x -= spin * 0.98;
   frontG.rotation.y = -P.steer * 0.18 * (P.v < 8 ? 1 : 0.4);
   if (!P.crash) poseRider(P.lean, P.steer);
@@ -1865,7 +1937,7 @@ function updateCamera(dt) {
   const ahead = (14 - RO) * Math.min(1.2, (Math.cos(el) / Math.cos(e0)) ** 3); // plus on monte, plus on regarde vers le pilote
   P.shake = smooth(P.shake, 0, 3.5, dt);
   const vib = (0.004 + P.v * 0.00028) + P.shake * 0.05 + (P.x < -ROAD_L - 0.2 || P.x > ROAD_R + 0.2 ? 0.02 : 0);
-  camera.position.set(camPos.x + (Math.random() - 0.5) * vib, camPos.y + (Math.random() - 0.5) * vib, camPos.z);
+  camera.position.set(camPos.x + (Math.random() - 0.5) * vib, camPos.y + (Math.random() - 0.5) * vib + (P.crash ? 0 : SU.S.y * 0.5), camPos.z);
   camLook.set(fx + fwdX * ahead, P.crash ? 0.6 : 1.3, fz + fwdZ * ahead);
   camera.lookAt(camLook);
   if (!P.crash) camera.rotateZ(P.roll * 0.18);
@@ -1892,7 +1964,7 @@ const STEP = 1 / 120;
 function step(dt) {
   keyInput();
   hitCool = Math.max(0, hitCool - dt);
-  if (started) { if (P.crash) crashPhysics(dt); else physics(dt); updateCars(dt); police.step(dt); }
+  if (started) { if (P.crash) crashPhysics(dt); else { physics(dt); if (!P.crash) SU.step(dt); } updateCars(dt); police.step(dt); }
 }
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -1927,7 +1999,7 @@ if (/mode=poursuite/.test(location.search)) $('#goChase').classList.add('pick');
 requestAnimationFrame(frame);
 
 // outils de test (seulement avec ?debug dans l'adresse)
-if (location.search.includes('debug')) window.__g = { P, IN, camOrbit, clouds, radar, police, MODE, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
+if (location.search.includes('debug')) window.__g = { SU, P, IN, camOrbit, clouds, radar, police, MODE, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
 </script>
 </body>
 </html>
