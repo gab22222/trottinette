@@ -246,11 +246,7 @@ function drawRoad(g, w, h, rough) {
     speckle(g, w, h, 120000, ['#46484c', '#36383b', '#424448', '#4c4e52', '#323437'], 1, 2);
     speckle(g, w, h, 1500, ['#5c5e61', '#2a2c2f'], 1.5, 3);
   } else speckle(g, w, h, 60000, ['#f4f4f4', '#d4d4d4', '#ffffff', '#cccccc'], 1, 3);
-  // marquages blancs
-  const line = (x, y0, y1) => { g.fillStyle = rough ? '#9a9a9a' : '#e9e9e4'; g.fillRect((5 + x - 0.075) * PXM, y0, 0.15 * PXM, y1 - y0); };
-  line(-LANE, 0, h); line(LANE, 0, h);
-  line(0, 0, (3 / DASH) * h);
-  if (!rough) speckle(g, w, h, 6000, ['rgba(60,62,66,.5)'], 1, 2);
+  // les marquages ne sont pas peints ici : ce sont de vraies formes posées sur la route (nettes jusqu'à l'horizon)
 }
 const roadMap = canvasTex(1024, 1331, (g, w, h) => drawRoad(g, w, h, false));
 const roadRough = canvasTex(512, 666, (g, w, h) => { g.scale(0.5, 0.5); drawRoad(g, 1024, 1331, true); }, false);
@@ -295,10 +291,21 @@ const leafGeo = (() => {
 const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, flatShading: true });
 
 const postGeo = new THREE.BoxGeometry(0.1, 0.75, 0.08);
-function makeChunk() {
+// marquages blancs : lignes continues de rive, ligne centrale en tirets de 3 m tous les 13 m
+// le motif suit la position réelle sur la route, il ne se décale ni d'un tronçon à l'autre ni au recyclage (1300 m = 100 motifs)
+const markMat = new THREE.MeshStandardMaterial({ color: 0xe9e9e4, roughness: 0.55, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+function markingsGeo(startZ) {
+  const quads = [], LW = 0.15, quad = (x, s0, s1) => quads.push(new THREE.PlaneGeometry(LW, s1 - s0).rotateX(-Math.PI / 2).translate(x, 0.004, -(s0 + s1) / 2));
+  quad(-LANE, 0, CH); quad(LANE, 0, CH);
+  const phase = ((-startZ % DASH) + DASH) % DASH;  // position dans le motif au début du tronçon
+  for (let s0 = -phase; s0 < CH; s0 += DASH) { const a = Math.max(0, s0), b = Math.min(CH, s0 + 3); if (b > a + 0.01) quad(0, a, b); }
+  return mergeGeometries(quads);
+}
+function makeChunk(startZ) {
   const g = new THREE.Group();
   const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_W, CH).rotateX(-Math.PI / 2).translate(0, 0, -CH / 2), roadMat);
   road.receiveShadow = true; g.add(road);
+  const marks = new THREE.Mesh(markingsGeo(startZ), markMat); marks.receiveShadow = true; g.add(marks);
   // les deux côtés partagent une seule géométrie par matériau (moins d'appels de dessin sur iPhone)
   const both = make => mergeGeometries([-1, 1].map(make));
   const grav = new THREE.Mesh(both(s => new THREE.PlaneGeometry(1.4, CH).rotateX(-Math.PI / 2).translate(s * (ROAD_W / 2 + 0.7), -0.01, -CH / 2)), gravelMat);
@@ -331,7 +338,7 @@ function makeChunk() {
   return g;
 }
 const chunks = [];
-for (let i = 0; i < NCH; i++) { const c = makeChunk(); c.position.z = CH - i * CH; chunks.push(c); }
+for (let i = 0; i < NCH; i++) { const c = makeChunk(CH - i * CH); c.position.z = CH - i * CH; chunks.push(c); }
 
 // ======================================================================
 // la trottinette (proportions réelles de la Storm Limited) et son pilote
@@ -969,8 +976,8 @@ let camYaw = 0, started = false;
 function recycle() {
   for (const c of chunks) if (c.position.z - CH > P.z + 70) c.position.z -= NCH * CH;
   // grand décalage d'origine pour garder des nombres précis sur des centaines de kilomètres
-  if (P.z < -4000) {
-    const s = 4000; P.z += s; camPos.z += s;
+  if (P.z < -3900) {
+    const s = 3900; P.z += s; camPos.z += s; // 3900 m = 300 motifs de marquage = 39 tronçons
     for (const c of chunks) c.position.z += s;
     for (const c of cars) c.z += s;
     crashG.position.z += s;
