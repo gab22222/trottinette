@@ -683,6 +683,7 @@ function drawCars() {
 const P = { x: LANES[0] + 0.4, z: 0, yaw: 0, v: 0, pitch: 0, pitchV: 0, roll: 0, lean: 0, steer: 0, gear: 3, turbo: true, dual: true, antiFlip: false, dist: 0, wheelieT: 0, susp: 0, scrape: 0, shake: 0, tip: 0, crash: 0, crashT: 0 };
 const IN = { throttle: 0, steer: 0, lean: 0, rear: 0, both: 0 };
 const PITCH_MAX = THREE.MathUtils.degToRad(50); // l'arrière du plateau touche le sol
+const DESCENT_T = 3; // s : retour sur les deux roues quand on lâche la gâchette en wheelie
 function physics(dt) {
   const m = SC.mass + SC.rider, v = P.v;
   P.lean = smooth(P.lean, IN.lean, 8, dt);
@@ -741,14 +742,24 @@ function physics(dt) {
   } else {
     thrust = (Fr - rollR - Fb) / m; a = (Fr - resist - Fb) / m;
   }
-  if (P.pitch > 0) {
+  if (P.pitch > 0 && !IN.throttle) {
+    // gâchette lâchée : la roue avant redescend toute seule en 3 s, en douceur (départ lent, posé tout en douceur) ;
+    // le frein arrière accélère la descente
+    if (!P.desc) P.desc = { t: 0, p0: P.pitch };
+    const D = P.desc, prev = P.pitch;
+    D.t += dt * (IN.rear || IN.both ? 3 : 1);
+    const u = Math.min(1, D.t / DESCENT_T);
+    P.pitch = D.p0 * (1 + Math.cos(Math.PI * u)) / 2;
+    P.pitchV = (P.pitch - prev) / dt; P.scrape = 0;
+    if (u >= 1) { P.pitch = 0; P.pitchV = 0; P.desc = null; P.susp = 0.03; sfx('land', 0.35); }
+  } else if (P.pitch > 0) {
+    P.desc = null; // gaz remis pendant la descente : la physique reprend là où on en est
     // wheelie : rotation autour de la roue arrière, équilibre quand le centre de gravité passe au-dessus du contact
     const c = Math.cos(P.pitch), s = Math.sin(P.pitch);
     const xcg = d * c - h * s, ycg = d * s + h * c;
     const acc = (thrust * ycg - G * xcg + pull) / k2 - 2.2 * P.pitchV;  // amortissement : jambes et bras du pilote
     P.pitchV += acc * dt; P.pitch += P.pitchV * dt;
     P.scrape = 0;
-    if (P.v < 1 && !IN.throttle) P.pitchV = Math.min(P.pitchV, -0.8);
     const top = pulling ? PITCH_MAX : PITCH_MAX - 0.1; // doigt pas tiré vers le bas : le pilote retient avant que la bavette touche
     if (P.pitch >= top) { P.pitch = top; P.pitchV = Math.min(0, P.pitchV) - 0.3; }
     P.scrape = pulling && P.pitch >= PITCH_MAX - 0.012 ? 1 : 0; // la bavette reste au contact tant qu'on est (presque) en butée
@@ -816,7 +827,7 @@ function crashPhysics(dt) {
 function endCrash() {
   // on repart à l'arrêt, là où le pilote a fini sa glissade
   P.x = clamp(crashG.position.x, -LANE, LANE); P.z = crashG.position.z;
-  Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, scrape: 0 });
+  Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, scrape: 0, desc: null });
   pivotG.add(riderG); riderG.position.set(0, 0, 0); riderG.rotation.set(0, 0, 0);
   $('#fall').hidden = true;
 }
