@@ -154,7 +154,10 @@ const SC = {
   wheelR: 0.14, wheelW: 0.09, wheelbase: 0.93,
   forcePeak: 720,      // N par moteur au démarrage (~100 N·m au moyeu, roue de 11")
   powerMotor: 5500,    // W par moteur en pointe (5750 W annoncés)
-  gearCap: { 1: 45, 2: 75, 3: 112 },  // km/h, limites du contrôleur
+  gearCap: { 1: 45, 2: 75, 3: 230 },  // km/h, limites du contrôleur
+  // vitesses max (vitesse 3, Turbo, 2 moteurs) selon la position : au sol neutre / penché en avant,
+  // en wheelie neutre ou en arrière / penché en avant, en wheelie avec la bavette qui fait des étincelles
+  vmax: { ground: 145, groundTuck: 180, wheelie: 160, wheelieTuck: 190, scrape: 220 },
   ecoPower: 0.6, ecoForce: 0.7,
   mu: 0.9,             // adhérence pneu / asphalte sec
   brakeRear: 3.8, brakeBoth: 7.6,  // m/s² (hydrauliques)
@@ -672,14 +675,23 @@ function physics(dt) {
   const CdA = lerp(SC.CdA, SC.CdAtuck, Math.max(0, P.lean)) + Math.max(0, -P.lean) * 0.04;
   // la traînée s'exerce en hauteur (sur le pilote) : avec la poussée au sol elle fait cabrer, même à vitesse stable
   const drag = 0.5 * SC.rho * CdA * v * v;
-  const rollR = (v > 0.05 ? (SC.Crr + (off ? 0.09 : 0)) * m * G : 0) + (P.scrape && v > 0.05 ? 0.15 * m * G : 0); // la bavette qui racle freine un peu
+  const rollR = v > 0.05 ? (SC.Crr + (off ? 0.09 : 0)) * m * G : 0;
   const resist = drag + rollR;
   // moteurs : force limitée au démarrage par le couple, puis par la puissance ; le contrôleur bride selon la vitesse choisie
   const pf = P.turbo ? 1 : SC.ecoPower, ff = P.turbo ? 1 : SC.ecoForce;
   const cap = SC.gearCap[P.gear] / KMH;
   const capK = clamp((cap - v) / 1.2, 0, 1);
-  const Fm = IN.throttle * Math.min(SC.forcePeak * ff, SC.powerMotor * pf / Math.max(v, 0.3)) * capK;
   const airborne = P.pitch > 1e-4;
+  // vitesse max visée selon la position ; la roue arrière doit pouvoir y arriver seule (à haute vitesse la traînée,
+  // qui pousse en hauteur, déleste l'avant), puis le contrôleur bride pile à cette vitesse.
+  // Le démarrage reste limité par le couple comme avant ; Eco et 1 moteur restent moins rapides.
+  const VM = SC.vmax, fwd = Math.max(0, P.lean);
+  const vt = (P.scrape ? VM.scrape : airborne ? lerp(VM.wheelie, VM.wheelieTuck, fwd) : lerp(VM.ground, VM.groundTuck, fwd)) / KMH;
+  const Fneed = 0.5 * SC.rho * CdA * vt * vt + SC.Crr * m * G;
+  const forceMax = Math.max(SC.forcePeak, Fneed * 1.05) * ff;
+  const powerMax = Math.max(SC.powerMotor, Fneed * vt * 1.15) * pf * (P.dual ? 1 : 0.62);
+  const vtK = clamp((vt + 0.1 - v) / 0.15, 0, 1); // limiteur : coupe en douceur sur les derniers 0,5 km/h
+  const Fm = IN.throttle * Math.min(forceMax, powerMax / Math.max(v, 0.3)) * capK * vtK;
   let Fr = Fm, Ff = P.dual && !airborne ? Fm : 0;
   // freins : le frein avant n'agit que si la roue avant touche le sol
   const brakeDecel = IN.both ? SC.brakeBoth : IN.rear ? SC.brakeRear : 0;
