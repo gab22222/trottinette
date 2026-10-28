@@ -33,13 +33,13 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 
 /* zones de conduite : très discrètes, juste pour se repérer */
 .zones{position:fixed;inset:0;z-index:2;pointer-events:none}
-.zone{position:absolute;border:1px solid rgba(255,255,255,.07);display:flex;align-items:flex-end;justify-content:center;padding-bottom:10px;box-sizing:border-box;font:600 11px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.28);transition:background .12s}
+.zone{position:absolute;display:flex;align-items:flex-end;justify-content:center;padding-bottom:10px;box-sizing:border-box;font:600 11px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.28);transition:background .12s}
 .zone.on{background:rgba(255,255,255,.06)}
 #zGas{right:0;bottom:0;width:50%;height:33.34%}
 #zBoth{left:0;bottom:0;width:50%;height:33.34%}
 #zCam{left:0;right:0;bottom:33.33%;height:33.33%}
-#camReset{position:fixed;z-index:3;right:12px;bottom:calc(33.33% + 10px);display:inline-flex;align-items:center;gap:6px;font:700 12px/1 var(--display);letter-spacing:.12em;text-transform:uppercase;padding:9px 13px;border-radius:999px;border:1px solid var(--line);background:var(--glass);color:var(--ink);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);cursor:pointer;touch-action:manipulation;transition:opacity .2s}
-#camReset svg{width:14px;height:14px}
+#camReset{position:fixed;z-index:3;right:12px;bottom:calc(33.33% + 10px);display:grid;place-items:center;width:38px;height:38px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--glass);color:var(--ink);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);cursor:pointer;touch-action:manipulation;transition:opacity .2s}
+#camReset svg{width:17px;height:17px}
 #camReset.idle{opacity:.45}
 #knob{position:fixed;z-index:3;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;border:2px solid rgba(255,255,255,.5);background:rgba(255,255,255,.08);pointer-events:none}
 #knobBase{position:fixed;z-index:3;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:rgba(255,255,255,.4);pointer-events:none}
@@ -101,13 +101,12 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 <canvas id="c"></canvas>
 <div id="touch"></div>
 <div class="zones">
-  <div class="zone" id="zCam">Caméra</div>
-  <div class="zone" id="zBoth">2 freins</div>
+  <div class="zone" id="zCam"></div>
+  <div class="zone" id="zBoth">Freins</div>
   <div class="zone" id="zGas">Gaz + contrôle</div>
 </div>
 <button id="camReset" class="idle" type="button" aria-label="Recentrer la caméra">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.34-5.66"/><path d="M4 4v5h5"/></svg>
-  Recentrer
 </button>
 <div id="knobBase" hidden></div><div id="knob" hidden></div>
 <div id="hit"></div>
@@ -152,8 +151,8 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
     <h1>Trottinette</h1>
     <p>Dualtron Storm Limited, route de forêt, circulation réelle. Balade libre.</p>
     <div class="ctl">
-      <div style="grid-column:1/-1"><b>Milieu</b>Glisse pour tourner la caméra autour de toi, elle reste où tu la laisses ; « Recentrer » la remet derrière</div>
-      <div><b>Gauche, bas</b>Les deux freins</div>
+      <div style="grid-column:1/-1"><b>Milieu</b>Glisse pour tourner la caméra autour de toi, elle reste où tu la laisses ; le bouton ↺ la remet derrière</div>
+      <div><b>Gauche, bas</b>Freins (avant et arrière)</div>
       <div><b>Droite, bas</b>Gaz à fond + contrôle : glisse à gauche/droite pour tourner, vers le haut pour te pencher, vers le bas pour lever la roue</div>
     </div>
     <button id="go">Rouler</button>
