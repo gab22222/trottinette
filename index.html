@@ -1192,13 +1192,13 @@ const radar = (() => {
 
 // ======================================================================
 // mode course poursuite : flashé au-dessus de la limite, une moto de police (grande routière blanche,
-// bandes bleues, gyrophares) part à nos trousses. Elle monte à 220 km/h, double la circulation en se faufilant,
+// bandes bleues, gyrophares) part à nos trousses. Elle monte à 280 km/h, double la circulation en se faufilant,
 // vient se coller à côté de nous et, après 2 s collée, le policier nous pousse du pied et on tombe.
 // Pour la semer, il faut rester à plus de 350 m d'elle pendant 5 s d'affilée.
 // ======================================================================
 const MODE = { chase: false };
 const police = (() => {
-  const VMAX = 220 / KMH, ESCAPE_D = 350, ESCAPE_T = 5, KICK_T = 2;
+  const VMAX = 280 / KMH, ESCAPE_D = 350, ESCAPE_T = 5, KICK_T = 2;
   const white = new THREE.MeshPhysicalMaterial({ color: 0xf2f4f6, roughness: 0.28, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.08 });
   const blue = new THREE.MeshPhysicalMaterial({ color: 0x1b3f9e, roughness: 0.35, metalness: 0.2, clearcoat: 1 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x1d1f23, roughness: 0.6, metalness: 0.4 });
