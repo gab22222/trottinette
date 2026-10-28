@@ -97,6 +97,25 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 #start h1{font:700 56px/0.9 var(--display);letter-spacing:.01em;margin:0 0 6px;text-transform:uppercase}
 #start p{margin:0 0 18px;color:var(--mute);font-size:15px;line-height:1.45}
 #start button{font:700 18px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;padding:15px 28px;border-radius:999px;border:0;background:var(--accent);color:#2a1a00;cursor:pointer}
+#start .modes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#start .modes button{padding:14px 10px;line-height:1.1;border-radius:18px}
+#start .modes button small{display:block;font:500 11px/1.25 var(--body);letter-spacing:.02em;text-transform:none;margin-top:4px;opacity:.75}
+#start .modes .chase{background:linear-gradient(90deg,#1d4ed8,#d8232a);color:#fff}
+#start .modes .pick{box-shadow:0 0 0 3px rgba(255,255,255,.7)}
+#start .escapes{margin-top:12px;font:600 13px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+#chase{width:min(260px,70vw);margin:10px auto 0;padding:7px 10px;border-radius:12px;background:rgba(10,14,30,.55);border:1px solid rgba(80,120,255,.5);color:#dfe6ff;letter-spacing:.1em}
+#chase .crow{display:flex;align-items:center;gap:8px;justify-content:center}
+#chase b{font-weight:700;color:#fff}
+#chase .siren{width:10px;height:10px;border-radius:50%;background:#2a5cff;box-shadow:0 0 10px #2a5cff;animation:siren .42s steps(2) infinite}
+@keyframes siren{50%{background:#ff2a3a;box-shadow:0 0 10px #ff2a3a}}
+#chaseBar{margin-top:6px;height:8px;border-radius:5px;background:rgba(10,14,20,.55);border:1px solid rgba(255,255,255,.25);overflow:hidden}
+#chaseFill{display:block;height:100%;width:0;background:linear-gradient(90deg,#4f7bff,#ff2a3a)}
+#chaseEsc{margin-top:5px;color:#8dffb4}
+#chaseMsg{position:fixed;z-index:4;left:20px;right:20px;top:50%;text-align:center;pointer-events:none;font:700 30px/1.1 var(--display);letter-spacing:.03em;text-transform:uppercase;text-shadow:0 3px 18px rgba(0,0,0,.6);animation:stamp2 .3s cubic-bezier(.2,1.6,.4,1)}
+#chaseMsg.go{color:#9db4ff}
+#chaseMsg.caught{color:#ff6a5a}
+#chaseMsg.free{color:#7dffad}
+@keyframes stamp2{from{transform:scale(1.6);opacity:0}}
 #start .ctl{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 20px;text-align:left;font-size:13px;line-height:1.35;color:var(--mute)}
 #start .ctl div{padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.04)}
 #start .ctl b{display:block;color:var(--ink);font:700 13px/1.2 var(--display);letter-spacing:.1em;text-transform:uppercase;margin-bottom:2px}
@@ -135,8 +154,11 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
   </div>
 </div>
 <div class="info"><div id="dist">0,0 km</div><div id="wheelie" hidden>Wheelie</div>
-  <div id="tip" hidden><span id="tipLbl">Équilibre</span><div class="tipbar"><i id="tipFill"></i></div></div></div>
+  <div id="tip" hidden><span id="tipLbl">Équilibre</span><div class="tipbar"><i id="tipFill"></i></div></div>
+  <div id="chase" hidden><div class="crow"><span class="siren"></span><b id="chaseD">Police</b><span id="chaseT">0:00</span></div>
+    <div id="chaseBar" class="tipbar" hidden><i id="chaseFill"></i></div><div id="chaseEsc" hidden></div></div></div>
 <div id="fall" hidden>Chute !</div>
+<div id="chaseMsg" hidden></div>
 <button id="replay" type="button" aria-label="Reprendre" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg></button>
 <div id="gfx" hidden>
   <div class="gbox" role="dialog" aria-label="Graphismes">
@@ -164,13 +186,17 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 <div id="start" hidden>
   <div class="box">
     <h1>Trottinette</h1>
-    <p>Dualtron Storm Limited, route de forêt, circulation réelle. Balade libre.</p>
+    <p>Dualtron Storm Limited, route de forêt, circulation réelle. Balade libre, ou course poursuite si tu te fais flasher au-dessus de 110 km/h.</p>
     <div class="ctl">
       <div style="grid-column:1/-1"><b>Haut</b>Glisse pour tourner la caméra autour de toi, elle reste où tu la laisses ; le bouton ↺ la remet derrière</div>
       <div><b>Gauche, bas</b>Freins (avant et arrière)</div>
       <div><b>Droite, bas</b>Gaz à fond + contrôle : glisse à gauche/droite pour tourner, vers le haut pour te pencher, vers le bas pour lever la roue</div>
     </div>
-    <button id="go">Rouler</button>
+    <div class="modes">
+      <button id="go">Chill<small>balade libre</small></button>
+      <button id="goChase" class="chase">Course poursuite<small>flashé = la police te poursuit</small></button>
+    </div>
+    <div class="escapes" id="escapes" hidden></div>
   </div>
 </div>
 <div id="loading">Chargement…</div>
@@ -179,6 +205,7 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const $ = s => document.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -1150,6 +1177,7 @@ const radar = (() => {
         flashT = 0.35; msgT = 3.5; sfx('flash');
         msg.innerHTML = `Flashé à <b>${kmh}&nbsp;km/h</b> au lieu de ${LIMIT}&nbsp;km/h&nbsp;!!!`; msg.hidden = false;
         fl.classList.remove('on'); void fl.offsetWidth; fl.classList.add('on');
+        if (MODE.chase) police.start();
       }
     }
     // radar suivant, environ 2 km plus loin
@@ -1160,6 +1188,213 @@ const radar = (() => {
     if (msgT > 0) { msgT -= dt; if (msgT <= 0) msg.hidden = true; }
   }
   return { update, shift: s => { z += s; place(); }, get z() { return z; }, LIMIT };
+})();
+
+// ======================================================================
+// mode course poursuite : flashé au-dessus de la limite, une moto de police (grande routière blanche,
+// bandes bleues, gyrophares) part à nos trousses. Elle monte à 220 km/h, double la circulation en se faufilant,
+// vient se coller à côté de nous et, après 2 s collée, le policier nous pousse du pied et on tombe.
+// Pour la semer, il faut rester à plus de 350 m d'elle pendant 5 s d'affilée.
+// ======================================================================
+const MODE = { chase: false };
+const police = (() => {
+  const VMAX = 220 / KMH, ESCAPE_D = 350, ESCAPE_T = 5, KICK_T = 2;
+  const white = new THREE.MeshPhysicalMaterial({ color: 0xf2f4f6, roughness: 0.28, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.08 });
+  const blue = new THREE.MeshPhysicalMaterial({ color: 0x1b3f9e, roughness: 0.35, metalness: 0.2, clearcoat: 1 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1d1f23, roughness: 0.6, metalness: 0.4 });
+  const chrome = new THREE.MeshStandardMaterial({ color: 0xc9cdd2, roughness: 0.2, metalness: 1 });
+  const tireM = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.85 });
+  const glass = new THREE.MeshPhysicalMaterial({ color: 0xb8c8d8, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.35, depthWrite: false });
+  const navy = new THREE.MeshStandardMaterial({ color: 0x1a2236, roughness: 0.75 });
+  const bootM = new THREE.MeshStandardMaterial({ color: 0x0d0d0e, roughness: 0.45, metalness: 0.2 });
+  const helmW = new THREE.MeshPhysicalMaterial({ color: 0xf4f5f7, roughness: 0.25, clearcoat: 1 });
+  const visorD = new THREE.MeshPhysicalMaterial({ color: 0x0a0d12, roughness: 0.05, metalness: 0.8 });
+  const strobeA = new THREE.MeshStandardMaterial({ color: 0x1030ff, emissive: 0x2a4cff, emissiveIntensity: 0 });
+  const strobeB = new THREE.MeshStandardMaterial({ color: 0x1030ff, emissive: 0x2a4cff, emissiveIntensity: 0 });
+  const headM = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff6e0, emissiveIntensity: 2.2 });
+  const decal = canvasTex(256, 96, (g, w, h) => {
+    g.fillStyle = '#f2f4f6'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#1b3f9e'; g.fillRect(0, 58, w, 26); g.fillStyle = '#d8232a'; g.fillRect(0, 84, w, 6);
+    g.fillStyle = '#1b3f9e'; g.font = 'bold 44px Arial, Helvetica, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('POLICE', w / 2, 30);
+  });
+  decal.wrapS = decal.wrapT = THREE.ClampToEdgeWrapping;
+  const decalM = new THREE.MeshPhysicalMaterial({ map: decal, roughness: 0.3, clearcoat: 1 });
+  const root = new THREE.Group(), lean = new THREE.Group(); root.add(lean); scene.add(root); root.visible = false;
+  const add = (geo, mat, x, y, z, parent = lean) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+  // roues de 17" (Ø 64 cm), disques de frein
+  const wheels = [-0.76, 0.74].map(z => {
+    const w = new THREE.Group(); w.position.set(0, 0.32, z); lean.add(w);
+    const t = add(new THREE.TorusGeometry(0.27, 0.055, 12, 32), tireM, 0, 0, 0, w); t.rotation.y = Math.PI / 2; t.scale.set(1, 1, 1.4);
+    const r = add(new THREE.CylinderGeometry(0.22, 0.22, 0.09, 24).rotateZ(Math.PI / 2), dark, 0, 0, 0, w);
+    add(new THREE.CylinderGeometry(0.15, 0.15, 0.01, 24).rotateZ(Math.PI / 2), chrome, 0.06, 0, 0, w);
+    return w;
+  });
+  // fourche, cadre, moteur boxer, échappement
+  for (const s of [-1, 1]) { const f = add(new THREE.CylinderGeometry(0.025, 0.025, 0.62, 10), chrome, s * 0.09, 0.62, -0.66); f.rotation.x = -0.45; }
+  add(new THREE.BoxGeometry(0.34, 0.32, 0.7), dark, 0, 0.5, -0.02);
+  for (const s of [-1, 1]) { const c = add(new THREE.CylinderGeometry(0.075, 0.08, 0.2, 14).rotateZ(Math.PI / 2), chrome, s * 0.25, 0.45, -0.22); }
+  const ex = add(new THREE.CylinderGeometry(0.055, 0.06, 0.55, 14).rotateX(Math.PI / 2), chrome, 0.2, 0.42, 0.55); ex.rotation.x = -0.12;
+  // carénage avant, réservoir, selle, bulle
+  const RB = (w, h, d, r) => new RoundedBoxGeometry(w, h, d, 4, r);
+  const fair = add(RB(0.6, 0.5, 0.5, 0.13), white, 0, 0.93, -0.6); fair.rotation.x = 0.28;      // carénage avant
+  const band = add(RB(0.612, 0.085, 0.512, 0.03), blue, 0, 0.83, -0.6); band.rotation.x = 0.28; // bande bleue
+  const flank = add(RB(0.52, 0.26, 0.62, 0.09), white, 0, 0.64, -0.3);                           // flancs
+  const tank = add(RB(0.36, 0.2, 0.48, 0.08), white, 0, 0.99, -0.12);
+  const fender = add(RB(0.15, 0.05, 0.5, 0.02), white, 0, 0.66, -0.8); fender.rotation.x = -0.15;
+  add(new THREE.BoxGeometry(0.32, 0.09, 0.62), dark, 0, 0.9, 0.33);
+  const screen = add(new THREE.PlaneGeometry(0.46, 0.42), glass, 0, 1.28, -0.74); screen.rotation.x = -0.5; screen.castShadow = false;
+  for (const s of [-1, 1]) { const h = add(new THREE.BoxGeometry(0.1, 0.05, 0.02), headM, s * 0.09, 0.92, -0.9); h.rotation.x = 0.28; }
+  // valises latérales (POLICE, bande bleue et rouge) et top-case
+  for (const s of [-1, 1]) {
+    const p = add(new THREE.BoxGeometry(0.17, 0.34, 0.5), white, s * 0.35, 0.66, 0.56);
+    const d = add(new THREE.PlaneGeometry(0.48, 0.18), decalM, s * 0.437, 0.66, 0.56); d.rotation.y = s * Math.PI / 2; d.castShadow = false;
+  }
+  add(new THREE.BoxGeometry(0.42, 0.3, 0.36), white, 0, 1.06, 0.84);
+  add(new THREE.BoxGeometry(0.43, 0.05, 0.37), blue, 0, 0.98, 0.84);
+  // gyrophares : feux bleus avant (sur le carénage) et barre arrière au-dessus du top-case
+  const strobes = [];
+  for (const s of [-1, 1]) strobes.push(add(new THREE.BoxGeometry(0.06, 0.035, 0.03), s < 0 ? strobeA : strobeB, s * 0.25, 1.0, -0.84));
+  for (const s of [-1, 1]) strobes.push(add(new THREE.BoxGeometry(0.12, 0.05, 0.05), s < 0 ? strobeA : strobeB, s * 0.08, 1.24, 0.92));
+  add(new THREE.BoxGeometry(0.3, 0.04, 0.06), dark, 0, 1.21, 0.92);
+  const glowTex = canvasTex(64, 64, (c, w) => { const gr = c.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(120,150,255,1)'); gr.addColorStop(0.3, 'rgba(40,80,255,.55)'); gr.addColorStop(1, 'rgba(20,40,255,0)'); c.fillStyle = gr; c.fillRect(0, 0, w, w); });
+  const glows = [[-0.25, 1.0, -0.88, strobeA], [0.25, 1.0, -0.88, strobeB], [-0.08, 1.26, 0.96, strobeA], [0.08, 1.26, 0.96, strobeB]].map(([x, y, z, m]) => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+    sp.position.set(x, y, z); sp.scale.setScalar(0.85); sp.userData.m = m; lean.add(sp); return sp;
+  });
+  // guidon
+  add(new THREE.CylinderGeometry(0.016, 0.016, 0.78, 8).rotateZ(Math.PI / 2), dark, 0, 1.1, -0.46);
+  // policier : blouson bleu marine, casque blanc, bottes ; la jambe côté trottinette se tend pour pousser
+  const seg = (r0, r1, mat) => { const m = add(new THREE.CylinderGeometry(r1, r0, 1, 12), mat, 0, 0, 0); const j = add(new THREE.SphereGeometry(r0, 12, 8), mat, 0, 0, 0); return (a, b) => { const d = b.clone().sub(a), L = d.length(); m.position.copy(a).add(b).multiplyScalar(0.5); m.scale.set(1, L, 1); m.quaternion.setFromUnitVectors(Y1, d.normalize()); j.position.copy(a); }; };
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const torsoP = add(new THREE.CapsuleGeometry(0.17, 0.32, 6, 14), navy, 0, 1.28, 0.16); torsoP.rotation.x = -0.32; torsoP.scale.set(1, 1, 0.78);
+  const helm = add(new THREE.SphereGeometry(0.15, 20, 14), helmW, 0, 1.68, 0.02); helm.scale.set(1, 1.05, 1.12);
+  const vis = add(new THREE.SphereGeometry(0.152, 20, 14, Math.PI * 1.15, Math.PI * 0.7, Math.PI * 0.32, Math.PI * 0.26), visorD, 0, 1.68, 0.02); vis.scale.set(1, 1.05, 1.12);
+  const armL = [seg(0.055, 0.048, navy), seg(0.048, 0.04, navy)], armR = [seg(0.055, 0.048, navy), seg(0.048, 0.04, navy)];
+  const legs = { '-1': [seg(0.085, 0.07, navy), seg(0.066, 0.055, bootM)], '1': [seg(0.085, 0.07, navy), seg(0.066, 0.055, bootM)] };
+  const feet = { '-1': add(new THREE.BoxGeometry(0.1, 0.08, 0.27), bootM, 0, 0, 0), '1': add(new THREE.BoxGeometry(0.1, 0.08, 0.27), bootM, 0, 0, 0) };
+  function pose(kickSide, kick) {
+    for (const s of [-1, 1]) {
+      const sh = V(s * 0.21, 1.48, 0.06), hand = V(s * 0.36, 1.1, -0.45), el = V(s * 0.3, 1.22, -0.18);
+      (s < 0 ? armL : armR)[0](sh, el); (s < 0 ? armL : armR)[1](el, hand);
+      const hip = V(s * 0.15, 1.0, 0.32);
+      let knee = V(s * 0.24, 0.86, -0.08), foot = V(s * 0.24, 0.42, 0.12);
+      if (s === kickSide && kick > 0) { knee = knee.lerp(V(s * 0.55, 0.84, 0.1), kick); foot = foot.lerp(V(s * 1.0, 0.62, 0.05), kick); }
+      legs[s][0](hip, knee); legs[s][1](knee, foot); feet[s].position.copy(foot).add(V(0, -0.02, -0.08));
+    }
+  }
+  pose(0, 0);
+
+  // état de la poursuite
+  const S = { on: false, x: 0, z: 0, v: 0, yaw: 0, roll: 0, side: -1, contact: 0, far: 0, t: 0, kick: 0, stop: false, siren: null, best: 0, escapes: 0 };
+  try { S.escapes = +localStorage.getItem('trott-escapes') || 0; } catch (e) {}
+  const msg = $('#chaseMsg');
+  let msgT = 0;
+  function say(text, cls) { msg.textContent = text; msg.className = cls; msg.hidden = false; msgT = 3; }
+  function start() {
+    if (S.on || P.crash) return;
+    Object.assign(S, { on: true, stop: false, x: LANES[0], z: P.z + 70, v: Math.max(P.v * 0.85, 20), yaw: 0, roll: 0, contact: 0, far: 0, t: 0, kick: 0 });
+    root.visible = true; sirenOn(true); say('Police à tes trousses !', 'go');
+  }
+  function end() { S.on = false; S.stop = false; root.visible = false; sirenOn(false); $('#chase').hidden = true; }
+  // la moto choisit une trajectoire libre devant elle : voie de droite, voie de gauche, bande d'arrêt, bande de gauche
+  const LINES = [LANES[0], LANES[1], LANE + 1.4, -LANE - 0.5];
+  function blockedAt(x, ahead) {
+    let lim = Infinity;
+    for (const c of cars) {
+      const dz = S.z - c.z - c.L / 2 - 1.2;
+      if (dz > -2 && dz < ahead && Math.abs(c.x - x) < c.W / 2 + 0.55) lim = Math.min(lim, dz);
+    }
+    return lim;
+  }
+  function step(dt) {
+    if (!S.on) return;
+    S.t += dt;
+    if (S.stop) {
+      // le pilote est à terre : la moto s'arrête à côté de lui
+      const tz = (P.crash ? crashG.position.z : P.z) + 3;
+      S.v = Math.max(0, S.v - 9 * dt); S.z -= S.v * dt; if (S.z < tz) { S.z = tz; S.v = 0; }
+      S.kick = Math.max(0, S.kick - dt * 3);
+      return;
+    }
+    const gap = S.z - P.z; // > 0 : la police est derrière
+    // côté d'approche : celui où il y a de la place
+    S.side = P.x > 1.2 ? -1 : P.x < -2 ? 1 : (S.side || -1);
+    let tx = clamp(P.x + S.side * 1.15, -ROAD_L - 0.3, ROAD_R + 0.3);
+    // vitesse visée : rattraper vite quand elle est loin, se caler sur nous quand elle est à côté
+    // vitesse visée : rattraper au plus vite, en gardant de quoi freiner pour se caler pile à côté (pas de dépassement)
+    const g = gap + 0.3, closing = g > 0 ? Math.sqrt(2 * 4.5 * g) : -Math.sqrt(2 * 4.5 * -g);
+    let want = P.v + closing;
+    // circulation : si sa trajectoire est bouchée, elle cherche un passage libre, sinon elle freine
+    const block = blockedAt(S.x, 35);
+    if (block < 35 && gap > 6) {
+      let best = null, bestGap = block;
+      for (const x of LINES) { const b = blockedAt(x, 40); if (b > bestGap + 5) { bestGap = b; best = x; } }
+      if (best !== null) tx = best;
+      else want = Math.min(want, Math.max(0, block - 4) * 0.6 + 8);
+    }
+    const accMax = 7.5 * (1 - 0.55 * S.v / VMAX);
+    const a = clamp((Math.min(want, VMAX) - S.v) * 2.2, -9, accMax);
+    S.v = clamp(S.v + a * dt, 0, VMAX);
+    const vx = clamp((tx - S.x) * 2.2, -5.5, 5.5);
+    S.x += vx * dt; S.z -= S.v * dt;
+    // si elle touche une voiture malgré tout, elle se cale derrière
+    for (const c of cars) if (Math.abs(c.x - S.x) < c.W / 2 + 0.35 && Math.abs(c.z - S.z) < c.L / 2 + 1.1 && S.z > c.z) { S.z = c.z + c.L / 2 + 1.1; S.v = Math.min(S.v, c.v); }
+    S.yaw = smooth(S.yaw, -Math.atan2(vx, Math.max(S.v, 4)) , 6, dt);
+    S.roll = smooth(S.roll, clamp(-vx * 0.06, -0.35, 0.35), 5, dt);
+    // collée à côté : coup de pied au bout de 2 s
+    const side = Math.abs(gap) < 1.4 && Math.abs(S.x - P.x) < 1.6;
+    S.contact = side ? S.contact + dt : Math.max(0, S.contact - dt * 1.5);
+    S.kick = smooth(S.kick, side ? 1 : 0, 6, dt);
+    if (S.contact >= KICK_T) {
+      P.yaw = clamp(P.yaw - S.side * 0.35, -1.1, 1.1); P.x -= S.side * 0.3;
+      S.contact = 0; startCrash(true); sfx('hit', 1);
+    }
+    // semée : loin derrière pendant 5 s d'affilée
+    S.far = gap > ESCAPE_D ? S.far + dt : 0;
+    if (S.far >= ESCAPE_T) {
+      S.escapes++; try { localStorage.setItem('trott-escapes', String(S.escapes)); } catch (e) {}
+      say(`Semée ! Poursuite de ${fmtT(S.t)}`, 'free'); end();
+    }
+  }
+  const fmtT = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+  function draw(dt, now) {
+    if (msgT > 0) { msgT -= dt; if (msgT <= 0) msg.hidden = true; }
+    if (!S.on) return;
+    root.position.set(S.x, 0, S.z); root.rotation.y = S.yaw; lean.rotation.z = S.roll;
+    for (const w of wheels) w.rotation.x -= S.v / 0.32 * dt;
+    pose(S.side < 0 ? 1 : -1, S.kick); // la jambe côté trottinette (la trottinette est de l'autre côté de la moto)
+    // gyrophares bleus : éclats alternés gauche/droite
+    const ph = (now / 1000 * 2.4) % 1, a = (ph < 0.12 || (ph > 0.22 && ph < 0.34)) ? 1 : 0, b = (ph > 0.5 && ph < 0.62) || (ph > 0.72 && ph < 0.84) ? 1 : 0;
+    strobeA.emissiveIntensity = a * 9; strobeB.emissiveIntensity = b * 9;
+    for (const g of glows) g.material.opacity = g.userData.m.emissiveIntensity / 9;
+    // sirène deux tons, plus forte quand elle est proche
+    if (S.siren) {
+      const t = actx.currentTime, d = Math.hypot(S.x - P.x, S.z - P.z);
+      S.siren.o.frequency.setTargetAtTime(Math.floor(now / 550) % 2 ? 435 : 580, t, 0.01);
+      S.siren.g.gain.setTargetAtTime(S.stop ? 0 : 0.11 * clamp(1 - d / 450, 0.05, 1), t, 0.05);
+    }
+    // infos à l'écran
+    const gap = S.z - P.z, ch = $('#chase');
+    ch.hidden = S.stop; if (!S.stop) {
+      $('#chaseD').textContent = Math.abs(gap) < 3 ? 'Police collée !' : gap > 0 ? `Police à ${Math.round(gap)} m` : `Police devant (${Math.round(-gap)} m)`;
+      $('#chaseT').textContent = fmtT(S.t);
+      $('#chaseFill').style.width = (S.contact / KICK_T * 100).toFixed(0) + '%';
+      $('#chaseBar').hidden = S.contact <= 0.01;
+      $('#chaseEsc').hidden = S.far <= 0; $('#chaseEsc').textContent = `Tu la sèmes… ${Math.ceil(ESCAPE_T - S.far)} s`;
+    }
+  }
+  function sirenOn(on) {
+    if (on && actx && !S.siren) {
+      const o = actx.createOscillator(), f = actx.createBiquadFilter(), g = actx.createGain();
+      o.type = 'square'; o.frequency.value = 435; f.type = 'lowpass'; f.frequency.value = 1600; g.gain.value = 0;
+      o.connect(f).connect(g).connect(audioOut); o.start(); S.siren = { o, g };
+    }
+    if (!on && S.siren) { try { S.siren.g.gain.setTargetAtTime(0, actx.currentTime, 0.1); S.siren.o.stop(actx.currentTime + 0.5); } catch (e) {} S.siren = null; }
+  }
+  // le pilote tombe pendant la poursuite (coup de pied ou chute) : arrêté ; à la fin de la chute, la police repart
+  function onPlayerCrash() { if (S.on && !S.stop) { S.stop = true; say(`Après ${fmtT(S.t)} de poursuite`, 'caught'); } }
+  function afterCrash() { if (S.on && S.stop) end(); }
+  return { S, start, step, draw, end, onPlayerCrash, afterCrash, shift: s => { S.z += s; } };
 })();
 
 // ======================================================================
@@ -1295,7 +1530,8 @@ function physics(dt) {
 }
 const crashG = new THREE.Group(), crashPitch = new THREE.Group(); crashG.add(crashPitch); scene.add(crashG);
 const RC = { v: 0, rot: 0, rotV: 0, rot0: 0, spin: 0 };
-function startCrash() {
+function startCrash(kicked = false) {
+  $('#fall').textContent = kicked ? 'Arrêté !' : 'Chute !'; police.onPlayerCrash();
   P.crash = 1; P.crashT = 0; P.crashAge = 0; P.tip = 0; P.warn = -1; P.scrape = 0;
   // le pilote quitte la trottinette en gardant sa position et son inclinaison
   crashG.position.set(P.x, R, P.z); crashG.rotation.set(0, P.yaw, 0); crashPitch.rotation.set(P.pitch, 0, 0);
@@ -1330,6 +1566,7 @@ function endCrash() {
   Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, warn: -1, scrape: 0, desc: null });
   pivotG.add(riderG); riderG.position.set(0, 0, 0); riderG.rotation.set(0, 0, 0);
   $('#fall').hidden = true; $('#replay').hidden = true;
+  police.afterCrash();
 }
 // bouton play : 3 s après le début de la chute, pour repartir sans attendre la fin de la glissade
 $('#replay').addEventListener('click', () => { audioInit(); if (P.crash) { RC.v = 0; endCrash(); } });
@@ -1596,7 +1833,7 @@ function recycle() {
     for (const c of cars) c.z += s;
     crashG.position.z += s;
     clouds.shift(s);
-    radar.shift(s); radarPrevZ += s;
+    radar.shift(s); radarPrevZ += s; police.shift(s);
   }
 }
 function updateScooter(dt) {
@@ -1655,7 +1892,7 @@ const STEP = 1 / 120;
 function step(dt) {
   keyInput();
   hitCool = Math.max(0, hitCool - dt);
-  if (started) { if (P.crash) crashPhysics(dt); else physics(dt); updateCars(dt); }
+  if (started) { if (P.crash) crashPhysics(dt); else physics(dt); updateCars(dt); police.step(dt); }
 }
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -1663,7 +1900,7 @@ function frame(now) {
   radarPrevZ = P.z;
   while (acc >= STEP && n < 8) { step(STEP); acc -= STEP; n++; }
   if (n === 8) acc = 0;
-  radar.update(dt, radarPrevZ); recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); clouds.update(dt, camera.position); hud(); updateAudio();
+  radar.update(dt, radarPrevZ); police.draw(dt, now); recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); clouds.update(dt, camera.position); hud(); updateAudio();
   renderer.render(scene, camera);
   // résolution adaptative (mode par défaut) : vise 60 i/s, ne descend pas sous 30
   fpsT += dt; fpsN++;
@@ -1681,11 +1918,16 @@ initCars();
 updateScooter(0); updateCamera(1);
 camFx = P.x;
 $('#loading').hidden = true; $('#start').hidden = false;
-$('#go').addEventListener('click', () => { audioInit(); $('#start').hidden = true; started = true; });
+// deux modes : Chill (balade) ou Course poursuite (?mode=poursuite pour y aller directement)
+function go(chase) { audioInit(); MODE.chase = chase; $('#start').hidden = true; started = true; }
+$('#go').addEventListener('click', () => go(false));
+$('#goChase').addEventListener('click', () => go(true));
+if (police.S.escapes) { $('#escapes').hidden = false; $('#escapes').textContent = `Poursuites semées : ${police.S.escapes}`; }
+if (/mode=poursuite/.test(location.search)) $('#goChase').classList.add('pick');
 requestAnimationFrame(frame);
 
 // outils de test (seulement avec ?debug dans l'adresse)
-if (location.search.includes('debug')) window.__g = { P, IN, camOrbit, clouds, radar, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
+if (location.search.includes('debug')) window.__g = { P, IN, camOrbit, clouds, radar, police, MODE, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
 </script>
 </body>
 </html>
