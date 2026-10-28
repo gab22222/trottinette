@@ -1487,12 +1487,14 @@ function physics(dt) {
     P.scrape = pulling && P.pitch >= PITCH_MAX - 0.012 ? 1 : 0; // la bavette reste au contact tant qu'on est (presque) en butée
     if (P.pitch <= 0) { SU.land(Math.min(0, P.pitchV) * WB); if (P.pitchV < -1.2) sfx('land', Math.min(1, -P.pitchV / 4)); P.pitch = 0; P.pitchV = 0; }
   }
-  // stoppie (réglé pour le jeu) : freins tenus depuis plus de 120 km/h, en passant sous 120 km/h l'arrière se lève
+  // stoppie (réglé pour le jeu) : à chaque coup de freins, quelle que soit la vitesse, l'arrière se lève
   // et la trottinette bascule sur sa roue avant jusqu'à 45°. Une fois en l'air, le pilote tient l'équilibre :
   // on peut lâcher les freins et même remettre les gaz (roue avant motrice), se pencher en avant réduit la traînée
   // comme sur deux roues ; se pencher en arrière (doigt tiré vers le bas) ou s'arrêter fait redescendre l'arrière
-  if (IN.both && v > 120 / KMH) P.stopArm = true; else if (!IN.both) P.stopArm = false;
-  if (!P.st && P.stopArm && v <= 120 / KMH && P.pitch === 0) { P.st = { a: 0, av: 0, down: false, t: 0 }; P.stopArm = false; }
+  // un nouvel appui sur les freins arme le stoppie (garder les freins après une redescente ne le relance pas)
+  if (IN.both && !P.bothPrev) P.stopArm = true; else if (!IN.both) P.stopArm = false;
+  P.bothPrev = IN.both;
+  if (!P.st && P.stopArm && v > 1.5 && P.pitch === 0 && !pulling) { P.st = { a: 0, av: 0, down: false, t: 0 }; P.stopArm = false; }
   if (P.st) {
     const S = P.st, TARGET = THREE.MathUtils.degToRad(45);
     if (!S.down && (pulling || v < 1.2)) { S.down = true; S.t = 0; S.a0 = S.a; }
@@ -1660,7 +1662,7 @@ function crashPhysics(dt) {
 function endCrash() {
   // on repart à l'arrêt, là où le pilote a fini sa glissade
   P.x = clamp(crashG.position.x, -LANE, LANE); P.z = crashG.position.z;
-  Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, warn: -1, scrape: 0, desc: null, st: null, stopArm: false });
+  Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, warn: -1, scrape: 0, desc: null, st: null, stopArm: false, bothPrev: 0 });
   pivotG.add(riderG); riderG.position.set(0, 0, 0); riderG.rotation.set(0, 0, 0);
   $('#fall').hidden = true; $('#replay').hidden = true;
   police.afterCrash(); SU.reset();
