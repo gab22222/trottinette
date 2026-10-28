@@ -151,6 +151,7 @@ const SC = {
   mu: 0.9,             // adhérence pneu / asphalte sec
   brakeRear: 3.8, brakeBoth: 7.6,  // m/s² (hydrauliques)
   regen: 1.6,          // m/s² de frein moteur quand on relâche la gâchette (2 moteurs)
+  pull: 330,           // N·m : le pilote tire sur le guidon en se penchant en arrière (~370 N à 0,9 m de la roue arrière)
   CdA: 0.70, CdAtuck: 0.52, Crr: 0.015, rho: 1.2,
 };
 const G = 9.81;
@@ -418,10 +419,12 @@ function poseRider(lean, steer) {
   // lean > 0 : penché en avant (aéro) ; lean < 0 : en arrière (wheelie)
   const fy = DECK_Y + 0.035;
   const feet = [V(-0.07, fy, -0.62), V(0.08, fy, -0.32)];   // pied avant gauche, pied arrière droit (position de conduite)
-  const crouch = Math.max(0, lean) * 0.22 + Math.max(0, -lean) * 0.12;
-  const hip = V(0.01, 0.98 - R - crouch, -0.43 - lean * 0.13);
-  const chestLen = 0.5, tilt = 0.32 + lean * 0.55;   // angle du buste vers l'avant
-  const neck = hip.clone().add(V(0, Math.cos(tilt) * chestLen, -Math.sin(tilt) * chestLen));
+  // trois postures repères (cou et inclinaison du buste), on passe de l'une à l'autre selon le doigt ;
+  // penché en avant : hanches en arrière et buste baissé, la tête reste au-dessus et en arrière du guidon
+  const POSE_N = [V(0, 1.31, -0.56), 0.32], POSE_T = [V(0, 1.16, -0.45), 0.85], POSE_B = [V(0, 1.25, -0.22), -0.1]; // repère : axe de la roue arrière
+  const [to, k] = lean >= 0 ? [POSE_T, lean] : [POSE_B, -lean];
+  const neck = POSE_N[0].clone().lerp(to[0], k), tilt = lerp(POSE_N[1], to[1], k), chestLen = 0.5;
+  const hip = neck.clone().sub(V(0, Math.cos(tilt) * chestLen, -Math.sin(tilt) * chestLen)).add(V(0.01, 0, 0));
   torso(hip.clone().add(V(0, 0.08, 0)), neck);
   head.position.copy(neck).add(V(0, 0.16, -0.03 - Math.max(0, lean) * 0.03));
   for (let i = 0; i < 2; i++) {
@@ -642,9 +645,11 @@ function physics(dt) {
   P.lean = smooth(P.lean, IN.lean, 8, dt);
   P.steer = smooth(P.steer, IN.steer, 9, dt);
   // centre de gravité (trottinette + pilote) : en avant de l'axe arrière (d) et en hauteur (h)
-  const riderZ = 0.52 + (P.lean > 0 ? P.lean * 0.2 : P.lean * 0.25), riderH = 1.2 - Math.max(0, P.lean) * 0.22 - Math.max(0, -P.lean) * 0.12;
+  const riderZ = 0.52 + (P.lean > 0 ? P.lean * 0.2 : P.lean * 0.3), riderH = 1.2 - Math.max(0, P.lean) * 0.22 - Math.max(0, -P.lean) * 0.12;
   const d = (SC.mass * 0.46 + SC.rider * riderZ) / m, h = (SC.mass * 0.22 + SC.rider * riderH) / m;
   const k2 = d * d + h * h + 0.06;
+  // se pencher en arrière, c'est aussi tirer sur le guidon : un couple qui soulève l'avant, comme un vrai pilote
+  const pull = Math.max(0, -P.lean) * SC.pull / m;
   // résistances : air (se pencher réduit la traînée), roulement, bas-côté
   const off = Math.abs(P.x) > ROAD_W / 2 + 0.2;
   const CdA = lerp(SC.CdA, SC.CdAtuck, Math.max(0, P.lean)) + Math.max(0, -P.lean) * 0.04;
@@ -673,7 +678,7 @@ function physics(dt) {
     }
     a = aEst;
     // la roue avant se lève si le couple de l'accélération dépasse celui du poids autour de la roue arrière
-    if (a * h > G * d + 0.05 && v < 40) { P.pitchV = Math.max(P.pitchV, 0.05); P.pitch = 1e-3; }
+    if (a * h + pull > G * d + 0.05 && v < 40) { P.pitchV = Math.max(P.pitchV, 0.05); P.pitch = 1e-3; }
   } else {
     a = (Fr - resist - Fb) / m;
   }
@@ -681,7 +686,7 @@ function physics(dt) {
     // wheelie : rotation autour de la roue arrière, équilibre quand le centre de gravité passe au-dessus du contact
     const c = Math.cos(P.pitch), s = Math.sin(P.pitch);
     const xcg = d * c - h * s, ycg = d * s + h * c;
-    const acc = (a * ycg - G * xcg) / k2 - 2.2 * P.pitchV;  // amortissement : jambes et bras du pilote
+    const acc = (a * ycg - G * xcg + pull) / k2 - 2.2 * P.pitchV;  // amortissement : jambes et bras du pilote
     P.pitchV += acc * dt; P.pitch += P.pitchV * dt;
     P.scrape = 0;
     if (P.v < 1 && !IN.throttle) P.pitchV = Math.min(P.pitchV, -0.8);
@@ -749,7 +754,7 @@ touch.addEventListener('pointermove', e => {
   const dx = e.clientX - ctlX0, dy = e.clientY - ctlY0;
   const dz = v => Math.sign(v) * Math.max(0, Math.abs(v) - 5);
   IN.steer = clamp(dz(dx) / 62, -1, 1);
-  IN.lean = clamp(-dz(dy) / 70, -1, 1);
+  IN.lean = clamp(-dz(dy) / (dy < 0 ? 65 : 55), -1, 1);
   knob.style.left = (ctlX0 + clamp(dx, -70, 70)) + 'px'; knob.style.top = (ctlY0 + clamp(dy, -75, 75)) + 'px';
 });
 function endPointer(e) {
@@ -936,7 +941,7 @@ $('#go').addEventListener('click', () => { audioInit(); $('#start').hidden = tru
 requestAnimationFrame(frame);
 
 // outils de test (seulement avec ?debug dans l'adresse)
-if (location.search.includes('debug')) window.__g = { P, IN, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE };
+if (location.search.includes('debug')) window.__g = { P, IN, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG };
 </script>
 </body>
 </html>
