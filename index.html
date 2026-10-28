@@ -51,12 +51,17 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 .right{align-items:flex-end}
 .pill{pointer-events:auto;font:700 13px/1 var(--display);letter-spacing:.1em;text-transform:uppercase;padding:8px 11px;border-radius:999px;border:1px solid var(--line);background:var(--glass);color:var(--ink);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);cursor:pointer;touch-action:manipulation;min-width:64px;text-align:center}
 .pill small{display:block;font:500 9px/1.2 var(--body);letter-spacing:.08em;color:var(--mute);margin-top:2px;text-transform:none}
+#bAnti[data-on="1"]{border-color:rgba(85,215,255,.6);color:#d6f4ff;background:rgba(85,215,255,.18)}
 #bTurbo[data-on="1"]{border-color:rgba(255,90,60,.7);color:#ffd7cf;background:rgba(255,90,60,.22)}
 #bTurbo[data-on="0"]{border-color:rgba(71,209,138,.6);color:#d4f7e4;background:rgba(71,209,138,.18)}
 .gears{display:flex;gap:4px}
 .gears .pill{min-width:0;padding:8px 10px}
 .gears .pill[aria-pressed="true"]{background:rgba(255,176,46,.28);border-color:rgba(255,176,46,.8);color:#fff1d6}
 .info{position:fixed;z-index:4;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 128px);text-align:center;pointer-events:none;font:600 13px/1.3 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--mute);text-shadow:0 1px 8px rgba(0,0,0,.6)}
+#tip{width:min(240px,62vw);margin:10px auto 0;color:#ffd7cf;letter-spacing:.16em}
+#tip .tipbar{margin-top:5px;height:9px;border-radius:5px;background:rgba(10,14,20,.55);border:1px solid rgba(255,255,255,.25);overflow:hidden}
+#tipFill{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffc23a,#ff5a3c);box-shadow:0 0 10px #ff5a3c}
+#fall{position:fixed;z-index:4;left:0;right:0;top:38%;text-align:center;font:700 64px/1 var(--display);letter-spacing:.04em;text-transform:uppercase;color:#ff6a4a;text-shadow:0 4px 24px rgba(0,0,0,.6);pointer-events:none}
 #wheelie{display:inline-block;margin-top:6px;padding:4px 10px;border-radius:999px;background:rgba(255,176,46,.22);color:#fff1d6;border:1px solid rgba(255,176,46,.55);letter-spacing:.12em}
 #home{text-decoration:none;min-width:0;opacity:.75}
 #hit{position:fixed;inset:0;z-index:3;pointer-events:none;background:radial-gradient(ellipse at center,transparent 45%,rgba(255,60,40,.55));opacity:0;transition:opacity .5s}
@@ -102,10 +107,13 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
   <div class="speed"><b id="spd">0</b><span>KM/H</span></div>
   <div class="right">
     <button class="pill" id="bMotor" data-on="2">2 moteurs<small>avant + arrière</small></button>
+    <button class="pill" id="bAnti" data-on="0">Anti-retour.<small>désactivé</small></button>
     <a class="pill" id="home" href="/">← games</a>
   </div>
 </div>
-<div class="info"><div id="dist">0,0 km</div><div id="wheelie" hidden>Wheelie</div></div>
+<div class="info"><div id="dist">0,0 km</div><div id="wheelie" hidden>Wheelie</div>
+  <div id="tip" hidden><span>Déséquilibre</span><div class="tipbar"><i id="tipFill"></i></div></div></div>
+<div id="fall" hidden>Chute !</div>
 
 <div id="start" hidden>
   <div class="box">
@@ -637,7 +645,7 @@ function drawCars() {
 // ======================================================================
 // physique de la trottinette
 // ======================================================================
-const P = { x: LANES[0] + 0.4, z: 0, yaw: 0, v: 0, pitch: 0, pitchV: 0, roll: 0, lean: 0, steer: 0, gear: 3, turbo: true, dual: true, dist: 0, wheelieT: 0, susp: 0, scrape: 0, shake: 0 };
+const P = { x: LANES[0] + 0.4, z: 0, yaw: 0, v: 0, pitch: 0, pitchV: 0, roll: 0, lean: 0, steer: 0, gear: 3, turbo: true, dual: true, antiFlip: false, dist: 0, wheelieT: 0, susp: 0, scrape: 0, shake: 0, tip: 0, crash: 0, crashT: 0 };
 const IN = { throttle: 0, steer: 0, lean: 0, rear: 0, both: 0 };
 const PITCH_MAX = THREE.MathUtils.degToRad(50); // l'arrière du plateau touche le sol
 function physics(dt) {
@@ -653,7 +661,10 @@ function physics(dt) {
   // résistances : air (se pencher réduit la traînée), roulement, bas-côté
   const off = Math.abs(P.x) > ROAD_W / 2 + 0.2;
   const CdA = lerp(SC.CdA, SC.CdAtuck, Math.max(0, P.lean)) + Math.max(0, -P.lean) * 0.04;
-  const resist = 0.5 * SC.rho * CdA * v * v + (v > 0.05 ? (SC.Crr + (off ? 0.09 : 0)) * m * G : 0) + (P.scrape && v > 0.05 ? 0.45 * m * G : 0);
+  // la traînée s'exerce en hauteur (sur le pilote) : avec la poussée au sol elle fait cabrer, même à vitesse stable
+  const drag = 0.5 * SC.rho * CdA * v * v;
+  const rollR = (v > 0.05 ? (SC.Crr + (off ? 0.09 : 0)) * m * G : 0) + (P.scrape && v > 0.05 ? 0.15 * m * G : 0); // la bavette qui racle freine un peu
+  const resist = drag + rollR;
   // moteurs : force limitée au démarrage par le couple, puis par la puissance ; le contrôleur bride selon la vitesse choisie
   const pf = P.turbo ? 1 : SC.ecoPower, ff = P.turbo ? 1 : SC.ecoForce;
   const cap = SC.gearCap[P.gear] / KMH;
@@ -666,31 +677,34 @@ function physics(dt) {
   let Fb = v > 0.02 ? brakeDecel * m * (IN.both && airborne ? 0.5 : 1) : 0;
   // gâchette relâchée : frein moteur des moteurs-roues (récupération d'énergie), sur la roue arrière seule si l'avant est en l'air
   if (!IN.throttle && v > 0.05) Fb += SC.regen * m * Math.min(1, v / 3) * (airborne || !P.dual ? 0.5 : 1);
-  let a;
+  // moments autour du contact de la roue arrière : poussée des moteurs moins roulement et freins (au sol),
+  // l'accélération et la traînée agissant au centre de gravité reviennent au même : (poussée nette) × hauteur
+  let a, thrust;
   if (!airborne) {
-    // transfert de charge : la roue avant se déleste en accélérant, elle ne peut plus transmettre que μ·N
-    let aEst = (Fr + Ff - resist - Fb) / m;
+    // transfert de charge : la roue avant se déleste, elle ne peut plus transmettre que μ·N
+    let tEst = (Fr + Ff - rollR - Fb) / m;
     for (let it = 0; it < 2; it++) {
-      const Nf = m * (G * (WB - (WB - d)) - aEst * h) / WB;  // charge avant (bras de levier d depuis l'arrière)
+      const Nf = m * (G * d - tEst * h - pull) / WB;  // charge sur la roue avant
       const Nr = m * G - Nf;
       Ff = Math.min(Ff, SC.mu * Math.max(0, Nf)); Fr = Math.min(Fr, SC.mu * Math.max(0, Nr));
-      aEst = (Fr + Ff - resist - Fb) / m;
+      tEst = (Fr + Ff - rollR - Fb) / m;
     }
-    a = aEst;
-    // la roue avant se lève si le couple de l'accélération dépasse celui du poids autour de la roue arrière
-    if (a * h + pull > G * d + 0.05 && v < 40) { P.pitchV = Math.max(P.pitchV, 0.05); P.pitch = 1e-3; }
+    thrust = tEst; a = (Fr + Ff - resist - Fb) / m;
+    // la roue avant se lève quand le couple de la poussée (+ le bras qui tire) dépasse celui du poids
+    if (thrust * h + pull > G * d + 0.05) { P.pitchV = Math.max(P.pitchV, 0.05); P.pitch = 1e-3; }
   } else {
-    a = (Fr - resist - Fb) / m;
+    thrust = (Fr - rollR - Fb) / m; a = (Fr - resist - Fb) / m;
   }
   if (P.pitch > 0) {
     // wheelie : rotation autour de la roue arrière, équilibre quand le centre de gravité passe au-dessus du contact
     const c = Math.cos(P.pitch), s = Math.sin(P.pitch);
     const xcg = d * c - h * s, ycg = d * s + h * c;
-    const acc = (a * ycg - G * xcg + pull) / k2 - 2.2 * P.pitchV;  // amortissement : jambes et bras du pilote
+    const acc = (thrust * ycg - G * xcg + pull) / k2 - 2.2 * P.pitchV;  // amortissement : jambes et bras du pilote
     P.pitchV += acc * dt; P.pitch += P.pitchV * dt;
     P.scrape = 0;
     if (P.v < 1 && !IN.throttle) P.pitchV = Math.min(P.pitchV, -0.8);
-    if (P.pitch >= PITCH_MAX) { P.pitch = PITCH_MAX; P.pitchV = Math.min(0, P.pitchV) - 0.3; P.scrape = 1; }
+    if (P.pitch >= PITCH_MAX) { P.pitch = PITCH_MAX; P.pitchV = Math.min(0, P.pitchV) - 0.3; }
+    P.scrape = P.pitch >= PITCH_MAX - 0.012 ? 1 : 0; // la bavette reste au contact tant qu'on est (presque) en butée
     if (P.pitch <= 0) { if (P.pitchV < -1.2) { P.susp = Math.min(0.06, -P.pitchV * 0.02); sfx('land', Math.min(1, -P.pitchV / 4)); } P.pitch = 0; P.pitchV = 0; }
   }
   P.v = Math.max(0, v + a * dt);
@@ -708,6 +722,9 @@ function physics(dt) {
   P.dist += P.v * dt;
   if (P.pitch > THREE.MathUtils.degToRad(4)) P.wheelieT += dt; else if (P.pitch === 0) P.wheelieT = 0;
   P.susp = smooth(P.susp, 0, 8, dt);
+  // bavette au sol : sans capteur anti-retournement, la jauge de déséquilibre monte en 5 s puis le pilote bascule
+  if (P.scrape && !P.antiFlip) P.tip = Math.min(1, P.tip + dt / 5); else P.tip = Math.max(0, P.tip - dt / 2);
+  if (P.tip >= 1) { startCrash(); return; }
   // contact avec les voitures : simple choc
   for (const c of cars) {
     const ox = (c.W / 2 + 0.3) - Math.abs(P.x - c.x), oz = (c.L / 2 + 0.62) - Math.abs((P.z - 0.47) - c.z);
@@ -718,6 +735,43 @@ function physics(dt) {
     } else { P.x += Math.sign(P.x - c.x) * ox; P.yaw += Math.sign(P.x - c.x) * -0.15; P.v *= 0.9; }
     hitFx(1);
   }
+}
+const crashG = new THREE.Group(), crashPitch = new THREE.Group(); crashG.add(crashPitch); scene.add(crashG);
+const RC = { v: 0, rot: 0, rotV: 0, rot0: 0, spin: 0 };
+function startCrash() {
+  P.crash = 1; P.crashT = 0; P.tip = 0; P.scrape = 0;
+  // le pilote quitte la trottinette en gardant sa position et son inclinaison
+  crashG.position.set(P.x, R, P.z); crashG.rotation.set(0, P.yaw, 0); crashPitch.rotation.set(P.pitch, 0, 0);
+  crashPitch.add(riderG); poseRider(-1, 0);
+  Object.assign(RC, { v: P.v, rot: P.pitch, rot0: P.pitch, rotV: 1.2, spin: (Math.random() - 0.5) * 0.8 });
+  P.crashPitch = P.pitch; P.crashRollV = 0;
+  sfx('hit', 1); P.shake = 1; $('#fall').hidden = false;
+}
+function crashPhysics(dt) {
+  // pilote : il finit de basculer sur le dos, puis glisse sur le bitume (frottement ~0,65 g)
+  if (RC.rot < 1.45) { RC.rotV += 7 * dt; RC.rot = Math.min(1.45, RC.rot + RC.rotV * dt); }
+  const k = clamp((RC.rot - RC.rot0) / Math.max(0.05, 1.45 - RC.rot0), 0, 1);
+  crashPitch.rotation.x = RC.rot; crashG.position.y = lerp(R, -0.38, k);
+  if (k > 0.6) RC.v = Math.max(0, RC.v - 6.4 * dt);
+  const ry = crashG.rotation.y;
+  crashG.position.x += -Math.sin(ry) * RC.v * dt; crashG.position.z += -Math.cos(ry) * RC.v * dt;
+  crashG.rotation.y += RC.spin * dt * Math.min(1, RC.v / 10);
+  // trottinette sans pilote : elle finit de se cabrer, tombe sur le côté et glisse en raclant
+  P.pitch = smooth(P.pitch, 1.25, 6, dt);
+  if (P.pitch > 1.1) { P.crashRollV += 9 * dt; P.roll = Math.min(1.45, P.roll + P.crashRollV * dt); }
+  P.v = Math.max(0, P.v - (P.roll > 1 ? 5 : 2.5) * dt);
+  P.x += -Math.sin(P.yaw) * P.v * dt; P.z += -Math.cos(P.yaw) * P.v * dt;
+  P.x = clamp(P.x, -(ROAD_W / 2 + 0.5), ROAD_W / 2 + 0.5); crashG.position.x = clamp(crashG.position.x, -(ROAD_W / 2 + 0.4), ROAD_W / 2 + 0.4);
+  P.dist += P.v * dt; P.wheelieT = 0;
+  if (RC.v < 0.3 && P.v < 0.3) P.crashT += dt;
+  if (P.crashT > 1.8) endCrash();
+}
+function endCrash() {
+  // on repart à l'arrêt, là où le pilote a fini sa glissade
+  P.x = clamp(crashG.position.x, -LANE, LANE); P.z = crashG.position.z;
+  Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, scrape: 0 });
+  pivotG.add(riderG); riderG.position.set(0, 0, 0); riderG.rotation.set(0, 0, 0);
+  $('#fall').hidden = true;
 }
 let hitCool = 0;
 function hitFx(k) {
@@ -780,12 +834,15 @@ function renderModes() {
   document.querySelectorAll('[data-gear]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.gear === P.gear)));
   const t = $('#bTurbo'); t.dataset.on = P.turbo ? 1 : 0; t.innerHTML = P.turbo ? 'Turbo<small>puissance max</small>' : 'Eco<small>puissance réduite</small>';
   const mo = $('#bMotor'); mo.dataset.on = P.dual ? 2 : 1; mo.innerHTML = P.dual ? '2 moteurs<small>avant + arrière</small>' : '1 moteur<small>arrière seul</small>';
-  try { localStorage.setItem('trott-modes', JSON.stringify({ g: P.gear, t: P.turbo, d: P.dual })); } catch (e) {}
+  const an = $('#bAnti'); an.dataset.on = P.antiFlip ? 1 : 0; an.innerHTML = 'Anti-retour.<small>' + (P.antiFlip ? 'activé' : 'désactivé') + '</small>';
+  try { localStorage.setItem('trott-modes', JSON.stringify({ g: P.gear, t: P.turbo, d: P.dual, a: P.antiFlip })); } catch (e) {}
 }
-try { const s = JSON.parse(localStorage.getItem('trott-modes') || 'null'); if (s) { P.gear = [1, 2, 3].includes(s.g) ? s.g : 3; P.turbo = s.t !== false; P.dual = s.d !== false; } } catch (e) {}
+try { const s = JSON.parse(localStorage.getItem('trott-modes') || 'null'); if (s) { P.gear = [1, 2, 3].includes(s.g) ? s.g : 3; P.turbo = s.t !== false; P.dual = s.d !== false; P.antiFlip = s.a === true; } } catch (e) {}
 document.querySelectorAll('[data-gear]').forEach(b => b.addEventListener('click', () => { P.gear = +b.dataset.gear; renderModes(); sfx('click'); }));
 $('#bTurbo').addEventListener('click', () => { P.turbo = !P.turbo; renderModes(); sfx('click'); });
 $('#bMotor').addEventListener('click', () => { P.dual = !P.dual; renderModes(); sfx('click'); });
+// capteur anti-retournement : activé, la trottinette ne bascule jamais en arrière
+$('#bAnti').addEventListener('click', () => { P.antiFlip = !P.antiFlip; renderModes(); sfx('click'); });
 renderModes();
 
 // ======================================================================
@@ -806,12 +863,14 @@ function audioInit() {
       loop().connect(windF); windF.connect(windGain).connect(master);
       const rf = actx.createBiquadFilter(); rf.type = 'lowpass'; rf.frequency.value = 260; rollGain = actx.createGain(); rollGain.gain.value = 0;
       loop().connect(rf); rf.connect(rollGain).connect(master);
+      const sf = actx.createBiquadFilter(); sf.type = 'bandpass'; sf.frequency.value = 3200; sf.Q.value = 0.9; scrapeGain = actx.createGain(); scrapeGain.gain.value = 0;
+      loop().connect(sf); sf.connect(scrapeGain).connect(master);
       audioOut = master;
     }
     if (actx.state === 'suspended') actx.resume();
   } catch (e) { actx = null; }
 }
-let audioOut = null;
+let audioOut = null, scrapeGain = null;
 function sfx(k, v = 1) {
   if (!actx || !audioOut) return;
   try {
@@ -833,6 +892,7 @@ function updateAudio() {
   windF.frequency.setTargetAtTime(300 + v * 28, t, 0.1);
   windGain.gain.setTargetAtTime(Math.min(0.75, (v / 30) * (v / 30) * 0.55) * (1 - Math.max(0, P.lean) * 0.25), t, 0.1);
   rollGain.gain.setTargetAtTime(Math.min(0.25, v / 30 * 0.22) * (P.pitch > 0.02 ? 0.5 : 1), t, 0.1);
+  if (scrapeGain) scrapeGain.gain.setTargetAtTime((P.scrape && !P.crash) || (P.crash && P.roll > 1 && v > 1.5) ? Math.min(0.5, 0.15 + v / 60) : 0, t, 0.04);
   for (const c of cars) {
     const dz = c.z - P.z;
     if (!c.passed && Math.abs(dz) < 5 && Math.abs(c.x - P.x) < 4.5 && Math.abs(c.v - P.v) > 3) { c.passed = true; sfx('pass', Math.min(1, Math.abs(c.v - P.v) / 15)); }
@@ -860,6 +920,43 @@ function updateStreaks(dt) {
 }
 
 // ======================================================================
+// étincelles : la bavette arrière (ou la trottinette couchée) qui racle le bitume
+// ======================================================================
+const SPK = 120;
+const sparks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.028, 0.028, 0.14), new THREE.MeshBasicMaterial({ color: 0xffb648, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }), SPK);
+sparks.frustumCulled = false; scene.add(sparks);
+const spk = Array.from({ length: SPK }, () => ({ life: 0, max: 1, p: new THREE.Vector3(), v: new THREE.Vector3() }));
+let spkNext = 0, spkAcc = 0;
+const Z1 = new THREE.Vector3(0, 0, 1), scrapePt = new THREE.Vector3(), spkQ = new THREE.Quaternion(), spkS = new THREE.Vector3(), spkM = new THREE.Matrix4(), spkDir = new THREE.Vector3();
+function updateSparks(dt) {
+  const fromTail = P.scrape && !P.crash, fromSide = P.crash && P.roll > 1 && P.v > 1.5;
+  if ((fromTail || fromSide) && P.v > 0.5) {
+    if (fromTail) { rootG.updateMatrixWorld(true); pivotG.localToWorld(scrapePt.set(0, 0.04, 0.22)); scrapePt.y = 0.02; }
+    else scrapePt.set(P.x, 0.03, P.z - 0.4);
+    spkAcc += dt * Math.min(240, 60 + P.v * 6);
+    const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+    while (spkAcc >= 1) {
+      spkAcc -= 1; const s = spk[spkNext]; spkNext = (spkNext + 1) % SPK;
+      s.life = s.max = rr(0.18, 0.5); s.p.copy(scrapePt).add(spkDir.set(rr(-0.06, 0.06), 0, rr(-0.04, 0.04)));
+      const k = rr(0.25, 0.75); // les étincelles restent derrière la trottinette
+      s.v.set(fx * P.v * k + rr(-1.6, 1.6), rr(0.6, 2.8), fz * P.v * k + rr(-1, 1));
+    }
+  }
+  for (let i = 0; i < SPK; i++) {
+    const s = spk[i];
+    if (s.life > 0) {
+      s.life -= dt; s.v.y -= G * dt; s.p.addScaledVector(s.v, dt);
+      if (s.p.y < 0.01) { s.p.y = 0.01; s.v.y *= -0.3; s.v.x *= 0.6; s.v.z *= 0.6; }
+      const t = Math.max(0, s.life / s.max);
+      spkDir.copy(s.v).normalize(); spkQ.setFromUnitVectors(Z1, spkDir); spkS.set(t + 0.2, t + 0.2, 0.4 + Math.min(2.2, s.v.length() * 0.035));
+      spkM.compose(s.p, spkQ, spkS);
+    } else spkM.makeScale(0, 0, 0);
+    sparks.setMatrixAt(i, spkM);
+  }
+  sparks.instanceMatrix.needsUpdate = true;
+}
+
+// ======================================================================
 // boucle : physique à pas fixe, monde recyclé, caméra à la 3e personne, résolution adaptative
 // ======================================================================
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
@@ -871,6 +968,7 @@ function recycle() {
     const s = 4000; P.z += s; camPos.z += s;
     for (const c of chunks) c.position.z += s;
     for (const c of cars) c.z += s;
+    crashG.position.z += s;
   }
 }
 function updateScooter(dt) {
@@ -879,21 +977,22 @@ function updateScooter(dt) {
   pivotG.position.y = R - P.susp * 0.4; pivotG.rotation.x = P.pitch;
   const spin = P.v / R * dt; rearWheel.rotation.x -= spin; if (P.pitch === 0) frontWheel.rotation.x -= spin; else frontWheel.rotation.x -= spin * 0.98;
   frontG.rotation.y = -P.steer * 0.18 * (P.v < 8 ? 1 : 0.4);
-  poseRider(P.lean, P.steer);
+  if (!P.crash) poseRider(P.lean, P.steer);
   headLight.intensity = 0;
 }
 function updateCamera(dt) {
   camYaw = smooth(camYaw, P.yaw, 4, dt);
   const fwdX = -Math.sin(camYaw), fwdZ = -Math.cos(camYaw);
   const back = 3.9 + P.v * 0.012, up = 2.1 + P.pitch * 0.3;
-  const tx = P.x - fwdX * back, tz = P.z - fwdZ * back;
+  const fx = P.crash ? crashG.position.x : P.x, fz = P.crash ? crashG.position.z : P.z;
+  const tx = fx - fwdX * back, tz = fz - fwdZ * back;
   camPos.x = smooth(camPos.x, tx, 9, dt); camPos.z = tz; camPos.y = smooth(camPos.y, up, 6, dt);
   P.shake = smooth(P.shake, 0, 3.5, dt);
   const vib = (0.004 + P.v * 0.00028) + P.shake * 0.05 + (Math.abs(P.x) > ROAD_W / 2 + 0.2 ? 0.02 : 0);
   camera.position.set(camPos.x + (Math.random() - 0.5) * vib, camPos.y + (Math.random() - 0.5) * vib, camPos.z);
-  camLook.set(P.x + fwdX * 14, 1.3, P.z + fwdZ * 14);
+  camLook.set(fx + fwdX * 14, P.crash ? 0.6 : 1.3, fz + fwdZ * 14);
   camera.lookAt(camLook);
-  camera.rotateZ(P.roll * 0.18);
+  if (!P.crash) camera.rotateZ(P.roll * 0.18);
   const baseFov = camera.aspect < 1 ? 70 : 58;
   const fov = baseFov + clamp(P.v * KMH / 110, 0, 1.15) * 16 + Math.max(0, P.lean) * 2;
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = smooth(camera.fov, fov, 3, dt); camera.updateProjectionMatrix(); }
@@ -904,8 +1003,9 @@ function updateCamera(dt) {
 function hud() {
   $('#spd').textContent = Math.round(P.v * KMH);
   $('#dist').textContent = (P.dist / 1000).toFixed(1).replace('.', ',') + ' km';
+  const tp = $('#tip'); tp.hidden = !(P.tip > 0 && !P.crash); if (!tp.hidden) $('#tipFill').style.width = (P.tip * 100).toFixed(1) + '%';
   const w = $('#wheelie');
-  if (P.wheelieT > 0.3) { w.hidden = false; w.textContent = `Wheelie ${Math.round(THREE.MathUtils.radToDeg(P.pitch))}° · ${P.wheelieT.toFixed(1).replace('.', ',')} s`; }
+  if (P.wheelieT > 0.3 && !P.crash) { w.hidden = false; w.textContent = `Wheelie ${Math.round(THREE.MathUtils.radToDeg(P.pitch))}° · ${P.wheelieT.toFixed(1).replace('.', ',')} s`; }
   else w.hidden = true;
 }
 let last = performance.now(), acc = 0, fpsT = 0, fpsN = 0;
@@ -913,14 +1013,14 @@ const STEP = 1 / 120;
 function step(dt) {
   keyInput();
   hitCool = Math.max(0, hitCool - dt);
-  if (started) { physics(dt); updateCars(dt); }
+  if (started) { if (P.crash) crashPhysics(dt); else physics(dt); updateCars(dt); }
 }
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   acc += dt; let n = 0;
   while (acc >= STEP && n < 8) { step(STEP); acc -= STEP; n++; }
   if (n === 8) acc = 0;
-  recycle(); drawCars(); updateScooter(dt); updateStreaks(dt); updateCamera(dt); hud(); updateAudio();
+  recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); hud(); updateAudio();
   renderer.render(scene, camera);
   // résolution adaptative : vise 60 i/s, ne descend pas sous 30
   fpsT += dt; fpsN++;
@@ -941,7 +1041,7 @@ $('#go').addEventListener('click', () => { audioInit(); $('#start').hidden = tru
 requestAnimationFrame(frame);
 
 // outils de test (seulement avec ?debug dans l'adresse)
-if (location.search.includes('debug')) window.__g = { P, IN, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG };
+if (location.search.includes('debug')) window.__g = { P, IN, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
 </script>
 </body>
 </html>
