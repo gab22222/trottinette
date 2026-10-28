@@ -658,6 +658,8 @@ function physics(dt) {
   const k2 = d * d + h * h + 0.06;
   // se pencher en arrière, c'est aussi tirer sur le guidon : un couple qui soulève l'avant, comme un vrai pilote
   const pull = Math.max(0, -P.lean) * SC.pull / m;
+  // le cabrage ne se déclenche, et la bavette ne touche le sol, que si le doigt est franchement tiré vers le bas
+  const pulling = IN.lean <= -0.3;
   // résistances : air (se pencher réduit la traînée), roulement, bas-côté
   const off = Math.abs(P.x) > ROAD_W / 2 + 0.2;
   const CdA = lerp(SC.CdA, SC.CdAtuck, Math.max(0, P.lean)) + Math.max(0, -P.lean) * 0.04;
@@ -691,7 +693,7 @@ function physics(dt) {
     }
     thrust = tEst; a = (Fr + Ff - resist - Fb) / m;
     // la roue avant se lève quand le couple de la poussée (+ le bras qui tire) dépasse celui du poids
-    if (thrust * h + pull > G * d + 0.05) { P.pitchV = Math.max(P.pitchV, 0.05); P.pitch = 1e-3; }
+    if (pulling && thrust * h + pull > G * d + 0.05) { P.pitchV = Math.max(P.pitchV, 0.05); P.pitch = 1e-3; }
   } else {
     thrust = (Fr - rollR - Fb) / m; a = (Fr - resist - Fb) / m;
   }
@@ -703,8 +705,9 @@ function physics(dt) {
     P.pitchV += acc * dt; P.pitch += P.pitchV * dt;
     P.scrape = 0;
     if (P.v < 1 && !IN.throttle) P.pitchV = Math.min(P.pitchV, -0.8);
-    if (P.pitch >= PITCH_MAX) { P.pitch = PITCH_MAX; P.pitchV = Math.min(0, P.pitchV) - 0.3; }
-    P.scrape = P.pitch >= PITCH_MAX - 0.012 ? 1 : 0; // la bavette reste au contact tant qu'on est (presque) en butée
+    const top = pulling ? PITCH_MAX : PITCH_MAX - 0.1; // doigt pas tiré vers le bas : le pilote retient avant que la bavette touche
+    if (P.pitch >= top) { P.pitch = top; P.pitchV = Math.min(0, P.pitchV) - 0.3; }
+    P.scrape = pulling && P.pitch >= PITCH_MAX - 0.012 ? 1 : 0; // la bavette reste au contact tant qu'on est (presque) en butée
     if (P.pitch <= 0) { if (P.pitchV < -1.2) { P.susp = Math.min(0.06, -P.pitchV * 0.02); sfx('land', Math.min(1, -P.pitchV / 4)); } P.pitch = 0; P.pitchV = 0; }
   }
   P.v = Math.max(0, v + a * dt);
@@ -808,7 +811,9 @@ touch.addEventListener('pointermove', e => {
   const dx = e.clientX - ctlX0, dy = e.clientY - ctlY0;
   const dz = v => Math.sign(v) * Math.max(0, Math.abs(v) - 5);
   IN.steer = clamp(dz(dx) / 62, -1, 1);
-  IN.lean = clamp(-dz(dy) / (dy < 0 ? 65 : 55), -1, 1);
+  // vertical : 16 px de marge, un doigt posé qui bouge un peu ne penche pas le pilote
+  const dzy = Math.sign(dy) * Math.max(0, Math.abs(dy) - 16);
+  IN.lean = clamp(-dzy / (dy < 0 ? 60 : 50), -1, 1);
   knob.style.left = (ctlX0 + clamp(dx, -70, 70)) + 'px'; knob.style.top = (ctlY0 + clamp(dy, -75, 75)) + 'px';
 });
 function endPointer(e) {
