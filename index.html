@@ -298,8 +298,9 @@ const postGeo = new THREE.BoxGeometry(0.1, 0.75, 0.08);
 // le motif suit la position réelle sur la route, il ne se décale ni d'un tronçon à l'autre ni au recyclage (1300 m = 100 motifs)
 const markMat = new THREE.MeshStandardMaterial({ color: 0xe9e9e4, roughness: 0.55, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 function markingsGeo(startZ) {
-  const quads = [], LW = 0.15, quad = (x, s0, s1) => quads.push(new THREE.PlaneGeometry(LW, s1 - s0).rotateX(-Math.PI / 2).translate(x, 0.004, -(s0 + s1) / 2));
-  quad(-LANE, 0, CH); quad(LANE, 0, CH);
+  // largeurs françaises : u = 7,5 cm ; lignes de rive 3u = 22,5 cm, ligne de séparation des voies 2u = 15 cm
+  const quads = [], quad = (x, s0, s1, w = 0.15) => quads.push(new THREE.PlaneGeometry(w, s1 - s0).rotateX(-Math.PI / 2).translate(x, 0.004, -(s0 + s1) / 2));
+  quad(-LANE - 0.1125, 0, CH, 0.225); quad(LANE + 0.1125, 0, CH, 0.225); // bord intérieur pile à 3,5 m du centre
   const phase = ((-startZ % DASH) + DASH) % DASH;  // position dans le motif au début du tronçon
   for (let s0 = -phase; s0 < CH; s0 += DASH) { const a = Math.max(0, s0), b = Math.min(CH, s0 + 3); if (b > a + 0.01) quad(0, a, b); }
   return mergeGeometries(quads);
@@ -373,7 +374,7 @@ function wheel(parent) {
   parent.add(g); return g;
 }
 // plateau 600 x 320 mm, garde au sol ~200 mm, flancs avec bandes LED
-const DECK_Z0 = -0.14, DECK_Z1 = -0.76, DECK_Y = 0.2 - R;  // repère : axe arrière à l'origine
+const DECK_Z0 = -0.14, DECK_Z1 = -0.76, DECK_Y = 0.25 - R;  // repère : axe arrière à l'origine ; dessus du plateau à ~28 cm du sol
 box(0.32, 0.055, 0.62, scooterBlack, 0, DECK_Y, (DECK_Z0 + DECK_Z1) / 2);
 box(0.3, 0.008, 0.58, deckRubber, 0, DECK_Y + 0.031, (DECK_Z0 + DECK_Z1) / 2);
 for (const s of [-1, 1]) box(0.006, 0.012, 0.56, ledMat, s * 0.162, DECK_Y - 0.005, (DECK_Z0 + DECK_Z1) / 2);
@@ -383,8 +384,8 @@ for (const s of [-1, 1]) {
   const ra = box(0.025, 0.05, 0.22, alu, s * 0.075, 0.02, -0.08); ra.rotation.x = -0.25;
 }
 box(0.2, 0.06, 0.1, scooterBlack, 0, DECK_Y + 0.02, DECK_Z0 + 0.06);  // talon / garde-boue arrière
-const rearFender = box(0.11, 0.012, 0.3, scooterBlack, 0, R + 0.03, 0.03); rearFender.rotation.x = 0.12;
-box(0.08, 0.02, 0.02, tailMat, 0, R + 0.02, 0.17);
+const rearFender = box(0.11, 0.012, 0.26, scooterBlack, 0, R + 0.03, 0.01); rearFender.rotation.x = 0.12;
+box(0.08, 0.02, 0.02, tailMat, 0, R + 0.02, 0.13);  // longueur totale ~1,21 m
 const rearWheel = wheel(pivotG);
 box(0.03, 0.05, 0.05, redCal, -0.06, 0.05, -0.03);
 // avant : tête de fourche, potence épaisse inclinée vers le pilote, guidon de 610 mm à 1,30 m du sol
@@ -393,7 +394,7 @@ const frontWheel = wheel(frontG);
 box(0.03, 0.05, 0.05, redCal, -0.06, 0.05, 0.03, frontG);
 for (const s of [-1, 1]) { const fa = box(0.025, 0.05, 0.24, alu, s * 0.075, 0.07, 0.09, frontG); fa.rotation.x = 0.55; }
 const frontFender = box(0.11, 0.012, 0.26, scooterBlack, 0, R + 0.035, 0.0, frontG);
-const stemBase = new THREE.Vector3(0, DECK_Y + 0.08, -0.8), stemTop = new THREE.Vector3(0, 1.3 - R, -0.66);
+const stemBase = new THREE.Vector3(0, DECK_Y + 0.08, -0.8), stemTop = new THREE.Vector3(0, 1.25 - R, -0.66); // guidon à 1,25 m, haut de l'écran à 1,30 m
 const stemLen = stemBase.distanceTo(stemTop), stemMid = stemBase.clone().add(stemTop).multiplyScalar(0.5);
 const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.036, stemLen, 12), scooterBlack);
 stem.position.copy(stemMid); stem.rotation.x = Math.atan2(stemTop.z - stemBase.z, stemTop.y - stemBase.y); stem.castShadow = true; pivotG.add(stem);
@@ -439,20 +440,21 @@ function poseRider(lean, steer) {
   const feet = [V(-0.07, fy, -0.62), V(0.08, fy, -0.32)];   // pied avant gauche, pied arrière droit (position de conduite)
   // trois postures repères (cou et inclinaison du buste), on passe de l'une à l'autre selon le doigt ;
   // penché en avant : hanches en arrière et buste baissé, la tête reste au-dessus et en arrière du guidon
-  const POSE_N = [V(0, 1.31, -0.56), 0.32], POSE_T = [V(0, 1.16, -0.45), 0.85], POSE_B = [V(0, 1.25, -0.22), -0.1]; // repère : axe de la roue arrière
+  const POSE_N = [V(0, 1.59, -0.56), 0.22], POSE_T = [V(0, 1.30, -0.50), 0.9], POSE_B = [V(0, 1.48, -0.25), -0.1]; // repère : axe de la roue arrière
   const [to, k] = lean >= 0 ? [POSE_T, lean] : [POSE_B, -lean];
-  const neck = POSE_N[0].clone().lerp(to[0], k), tilt = lerp(POSE_N[1], to[1], k), chestLen = 0.5;
+  const neck = POSE_N[0].clone().lerp(to[0], k), tilt = lerp(POSE_N[1], to[1], k), chestLen = 0.52;
   const hip = neck.clone().sub(V(0, Math.cos(tilt) * chestLen, -Math.sin(tilt) * chestLen)).add(V(0.01, 0, 0));
   torso(hip.clone().add(V(0, 0.08, 0)), neck);
   head.position.copy(neck).add(V(0, 0.16, -0.03 - Math.max(0, lean) * 0.03));
   for (let i = 0; i < 2; i++) {
     const s = i ? 1 : -1, h = hip.clone().add(V(s * 0.09, 0, 0));
-    const k = knee(h, feet[i], 0.44, 0.44, V(0, 0, -1));
-    legs[i][0](h, k); legs[i][1](k, feet[i]);
+    const ankle = feet[i].clone().add(V(0, 0.075, 0.03));
+    const k = knee(h, ankle, 0.46, 0.45, V(0, 0, -1));
+    legs[i][0](h, k); legs[i][1](k, ankle);
     shoes[i].position.copy(feet[i]).add(V(0, 0.035, -0.04)); shoes[i].rotation.y = i ? 0.35 : -0.15;
     const sh = neck.clone().add(V(s * 0.19, -0.06, 0.02));
     const hand = V(s * 0.24, stemTop.y, stemTop.z + 0.01 + (i ? -1 : 1) * steer * 0.04);
-    const el = knee(sh, hand, 0.3, 0.3, V(s * 0.6, -0.2, 0.5));
+    const el = knee(sh, hand, 0.32, 0.3, V(s * 0.6, -0.2, 0.5));
     arms[i][0](sh, el); arms[i][1](el, hand); hands[i].position.copy(hand);
   }
 }
@@ -525,7 +527,7 @@ function carGeos(m) {
   // peinture : caisse + toit + rétroviseurs
   const W2 = W, P2 = PROFILES[type], paintParts = [body.toNonIndexed()];
   if (type !== 'van') { const u0 = P2.glass[1][0] + 0.02, u1 = P2.glass[2][0] - 0.02; paintParts.push(new THREE.BoxGeometry(W2 * 0.62, 0.03, (u1 - u0) * L).translate(0, H * 0.995, -L / 2 + (u0 + u1) / 2 * L).toNonIndexed()); }
-  for (const s of [-1, 1]) paintParts.push(new THREE.BoxGeometry(0.16, 0.11, 0.08).translate(s * (W2 / 2 + 0.05), (type === 'van' ? 0.55 : P2.belt) * H + 0.06, -L / 2 + (P2.glass[0][0] + 0.04) * L).toNonIndexed());
+  for (const s of [-1, 1]) paintParts.push(new THREE.BoxGeometry(0.12, 0.11, 0.08).translate(s * (W2 / 2 + 0.04), (type === 'van' ? 0.55 : P2.belt) * H + 0.06, -L / 2 + (P2.glass[0][0] + 0.04) * L).toNonIndexed());
   const strip = gs => gs.map(g => { for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k); return g; });
   const paint = mergeGeometries(strip(paintParts));
   const rearY = (type === 'van' ? 0.55 : 0.66) * H * (type === 'suv' ? 0.95 : 1) - 0.05, headY = (type === 'van' ? 0.42 : 0.52) * H - 0.02;
@@ -663,8 +665,8 @@ function physics(dt) {
   P.lean = smooth(P.lean, IN.lean, 8, dt);
   P.steer = smooth(P.steer, IN.steer, 9, dt);
   // centre de gravité (trottinette + pilote) : en avant de l'axe arrière (d) et en hauteur (h)
-  const riderZ = 0.52 + (P.lean > 0 ? P.lean * 0.2 : P.lean * 0.3), riderH = 1.2 - Math.max(0, P.lean) * 0.22 - Math.max(0, -P.lean) * 0.12;
-  const d = (SC.mass * 0.46 + SC.rider * riderZ) / m, h = (SC.mass * 0.22 + SC.rider * riderH) / m;
+  const riderZ = 0.52 + (P.lean > 0 ? P.lean * 0.2 : P.lean * 0.3), riderH = 1.27 - Math.max(0, P.lean) * 0.22 - Math.max(0, -P.lean) * 0.12;
+  const d = (SC.mass * 0.46 + SC.rider * riderZ) / m, h = (SC.mass * 0.25 + SC.rider * riderH) / m;
   const k2 = d * d + h * h + 0.06;
   // se pencher en arrière, c'est aussi tirer sur le guidon : un couple qui soulève l'avant, comme un vrai pilote
   const pull = Math.max(0, -P.lean) * SC.pull / m;
