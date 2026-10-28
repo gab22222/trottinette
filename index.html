@@ -36,9 +36,11 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 .zone{position:absolute;border:1px solid rgba(255,255,255,.07);display:flex;align-items:flex-end;justify-content:center;padding-bottom:10px;box-sizing:border-box;font:600 11px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.28);transition:background .12s}
 .zone.on{background:rgba(255,255,255,.06)}
 #zGas{right:0;bottom:0;width:50%;height:33.34%}
-#zCtl{right:0;bottom:33.33%;width:50%;height:33.33%}
-#zRear{left:0;bottom:0;width:50%;height:33.34%}
-#zBoth{left:0;bottom:33.33%;width:50%;height:33.33%}
+#zBoth{left:0;bottom:0;width:50%;height:33.34%}
+#zCam{left:0;right:0;bottom:33.33%;height:33.33%}
+#camReset{position:fixed;z-index:3;right:12px;bottom:calc(33.33% + 10px);display:inline-flex;align-items:center;gap:6px;font:700 12px/1 var(--display);letter-spacing:.12em;text-transform:uppercase;padding:9px 13px;border-radius:999px;border:1px solid var(--line);background:var(--glass);color:var(--ink);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);cursor:pointer;touch-action:manipulation;transition:opacity .2s}
+#camReset svg{width:14px;height:14px}
+#camReset.idle{opacity:.45}
 #knob{position:fixed;z-index:3;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;border:2px solid rgba(255,255,255,.5);background:rgba(255,255,255,.08);pointer-events:none}
 #knobBase{position:fixed;z-index:3;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:rgba(255,255,255,.4);pointer-events:none}
 
@@ -99,11 +101,14 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 <canvas id="c"></canvas>
 <div id="touch"></div>
 <div class="zones">
+  <div class="zone" id="zCam">Caméra</div>
   <div class="zone" id="zBoth">2 freins</div>
-  <div class="zone" id="zRear">Frein arrière</div>
-  <div class="zone" id="zCtl">Contrôle</div>
   <div class="zone" id="zGas">Gaz + contrôle</div>
 </div>
+<button id="camReset" class="idle" type="button" aria-label="Recentrer la caméra">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.34-5.66"/><path d="M4 4v5h5"/></svg>
+  Recentrer
+</button>
 <div id="knobBase" hidden></div><div id="knob" hidden></div>
 <div id="hit"></div>
 
@@ -147,9 +152,8 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
     <h1>Trottinette</h1>
     <p>Dualtron Storm Limited, route de forêt, circulation réelle. Balade libre.</p>
     <div class="ctl">
-      <div><b>Gauche, milieu</b>Les deux freins</div>
-      <div><b>Droite, milieu</b>Contrôle sans accélérer</div>
-      <div><b>Gauche, bas</b>Frein arrière</div>
+      <div style="grid-column:1/-1"><b>Milieu</b>Glisse pour tourner la caméra autour de toi, elle reste où tu la laisses ; « Recentrer » la remet derrière</div>
+      <div><b>Gauche, bas</b>Les deux freins</div>
       <div><b>Droite, bas</b>Gaz à fond + contrôle : glisse à gauche/droite pour tourner, vers le haut pour te pencher, vers le bas pour lever la roue</div>
     </div>
     <button id="go">Rouler</button>
@@ -866,29 +870,43 @@ function hitFx(k) {
 }
 
 // ======================================================================
-// entrées : portrait, gauche = freins, droite = gaz/contrôle (glisser depuis le point de contact)
+// entrées : portrait, en bas à gauche = les deux freins, en bas à droite = gaz/contrôle (glisser depuis le point de contact),
+// au milieu sur toute la largeur = caméra (glisser pour tourner autour du pilote)
 // ======================================================================
 const touch = $('#touch'), knob = $('#knob'), knobBase = $('#knobBase');
-let ctlId = null, ctlX0 = 0, ctlY0 = 0, ctlGas = false; const brakes = new Map();
-function zoneOf(x, y) { const h = innerHeight; if (y < h / 3) return null; const low = y > h * 2 / 3; return x < innerWidth / 2 ? (low ? 'rear' : 'both') : (low ? 'gas' : 'ctl'); }
+let ctlId = null, ctlX0 = 0, ctlY0 = 0; const brakes = new Set();
+// caméra : décalage choisi au doigt, gardé tel quel jusqu'au recentrage
+const camOrbit = { yaw: 0, pitch: 0, reset: false };
+let camId = null, camX = 0, camY = 0;
+function zoneOf(x, y) { const h = innerHeight; if (y < h / 3) return null; if (y < h * 2 / 3) return 'cam'; return x < innerWidth / 2 ? 'both' : 'gas'; }
 function refreshZones() {
-  IN.rear = [...brakes.values()].includes('rear') ? 1 : 0; IN.both = [...brakes.values()].includes('both') ? 1 : 0;
-  $('#zRear').classList.toggle('on', !!IN.rear); $('#zBoth').classList.toggle('on', !!IN.both);
-  $('#zGas').classList.toggle('on', ctlId !== null && ctlGas); $('#zCtl').classList.toggle('on', ctlId !== null && !ctlGas);
+  IN.both = brakes.size ? 1 : 0;
+  $('#zBoth').classList.toggle('on', !!IN.both);
+  $('#zGas').classList.toggle('on', ctlId !== null); $('#zCam').classList.toggle('on', camId !== null);
 }
+const camMoved = () => Math.abs(camOrbit.yaw) > 0.01 || Math.abs(camOrbit.pitch) > 0.01;
 touch.addEventListener('pointerdown', e => {
   e.preventDefault(); audioInit();
   const z = zoneOf(e.clientX, e.clientY); if (!z) return;
-  if (z === 'rear' || z === 'both') brakes.set(e.pointerId, z);
+  if (z === 'both') brakes.add(e.pointerId);
+  else if (z === 'cam') { if (camId === null) { camId = e.pointerId; camX = e.clientX; camY = e.clientY; camOrbit.reset = false; } }
   else if (ctlId === null) {
-    ctlId = e.pointerId; ctlX0 = e.clientX; ctlY0 = e.clientY; ctlGas = z === 'gas';
-    IN.throttle = ctlGas ? 1 : 0; IN.steer = 0; IN.lean = 0;
+    ctlId = e.pointerId; ctlX0 = e.clientX; ctlY0 = e.clientY;
+    IN.throttle = 1; IN.steer = 0; IN.lean = 0;
     knob.hidden = knobBase.hidden = false; knobBase.style.left = knob.style.left = ctlX0 + 'px'; knobBase.style.top = knob.style.top = ctlY0 + 'px';
   }
   try { touch.setPointerCapture(e.pointerId); } catch (_) {}
   refreshZones();
 });
 touch.addEventListener('pointermove', e => {
+  if (e.pointerId === camId) {
+    // glisser à droite fait tourner le décor avec le doigt ; vers le bas, la caméra monte au-dessus du pilote
+    camOrbit.yaw -= (e.clientX - camX) * 0.0075;
+    camOrbit.pitch = clamp(camOrbit.pitch + (e.clientY - camY) * 0.006, -0.18, 1.2);
+    camX = e.clientX; camY = e.clientY;
+    $('#camReset').classList.toggle('idle', !camMoved());
+    return;
+  }
   if (e.pointerId !== ctlId) return;
   const dx = e.clientX - ctlX0, dy = e.clientY - ctlY0;
   const dz = v => Math.sign(v) * Math.max(0, Math.abs(v) - 5);
@@ -900,12 +918,14 @@ touch.addEventListener('pointermove', e => {
 });
 function endPointer(e) {
   if (brakes.delete(e.pointerId)) refreshZones();
+  if (e.pointerId === camId) { camId = null; refreshZones(); }
   if (e.pointerId === ctlId) { ctlId = null; IN.throttle = 0; IN.steer = 0; IN.lean = 0; knob.hidden = knobBase.hidden = true; refreshZones(); }
 }
 touch.addEventListener('pointerup', endPointer); touch.addEventListener('pointercancel', endPointer);
 touch.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('gesturestart', e => e.preventDefault());
-// clavier (ordinateur) : flèches haut = gaz, gauche/droite = tourner, Z/S = se pencher, espace = frein arrière, B = deux freins
+$('#camReset').addEventListener('click', () => { audioInit(); camOrbit.reset = true; sfx('click'); });
+// clavier (ordinateur) : flèches haut = gaz, gauche/droite = tourner, Z/S = se pencher, espace, B ou flèche bas = deux freins
 const keys = {};
 addEventListener('keydown', e => { keys[e.code] = true; audioInit(); });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -914,7 +934,7 @@ function keyInput() {
   const k = c => keys[c] ? 1 : 0;
   if (!Object.values(keys).some(Boolean)) return;
   IN.throttle = k('ArrowUp'); IN.steer = k('ArrowRight') - k('ArrowLeft'); IN.lean = (k('KeyW') || k('KeyZ')) - k('KeyS');
-  IN.rear = k('Space'); IN.both = k('KeyB') || k('ArrowDown');
+  IN.both = k('Space') || k('KeyB') || k('ArrowDown');
 }
 // réglages figés : vitesse 3, Turbo, 2 moteurs, sans capteur anti-retournement
 Object.assign(P, { gear: 3, turbo: true, dual: true, antiFlip: false });
@@ -1082,7 +1102,7 @@ function updateSparks(dt) {
 // boucle : physique à pas fixe, monde recyclé, caméra à la 3e personne, résolution adaptative
 // ======================================================================
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
-let camYaw = 0, started = false;
+let camYaw = 0, camFx = 0, camUp = 2.1, started = false;
 function recycle() {
   for (const c of chunks) if (c.position.z - CH > P.z + 70) c.position.z -= NCH * CH;
   // grand décalage d'origine pour garder des nombres précis sur des centaines de kilomètres
@@ -1104,15 +1124,26 @@ function updateScooter(dt) {
 }
 function updateCamera(dt) {
   camYaw = smooth(camYaw, P.yaw, 4, dt);
-  const fwdX = -Math.sin(camYaw), fwdZ = -Math.cos(camYaw);
-  const back = 3.9 + P.v * 0.012, up = 2.1 + P.pitch * 0.3;
-  const fx = P.crash ? crashG.position.x : P.x, fz = P.crash ? crashG.position.z : P.z;
-  const tx = fx - fwdX * back, tz = fz - fwdZ * back;
-  camPos.x = smooth(camPos.x, tx, 9, dt); camPos.z = tz; camPos.y = smooth(camPos.y, up, 6, dt);
+  if (camOrbit.reset) {
+    // recentrage en douceur, par le plus court chemin
+    camOrbit.yaw = Math.atan2(Math.sin(camOrbit.yaw), Math.cos(camOrbit.yaw));
+    camOrbit.yaw = smooth(camOrbit.yaw, 0, 7, dt); camOrbit.pitch = smooth(camOrbit.pitch, 0, 7, dt);
+    if (!camMoved()) { camOrbit.yaw = camOrbit.pitch = 0; camOrbit.reset = false; $('#camReset').classList.add('idle'); }
+  }
+  const yaw = camYaw + camOrbit.yaw, fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
+  // centre de rotation : le pilote (0,45 m devant le point de contact arrière), pas la roue arrière
+  const RO = P.crash ? 0 : 0.45, back = 3.9 + RO + P.v * 0.012, up = 2.1 + P.pitch * 0.3;
+  const fx = P.crash ? crashG.position.x : P.x - Math.sin(P.yaw) * RO, fz = P.crash ? crashG.position.z : P.z - Math.cos(P.yaw) * RO;
+  camFx = smooth(camFx, fx, 9, dt); camUp = smooth(camUp, up, 6, dt);
+  // la caméra tourne autour d'un point à 1,30 m au-dessus du pilote, à la même distance (elle monte en arc quand on glisse vers le bas)
+  const e0 = Math.atan2(camUp - 1.3, back), dist = Math.hypot(back, camUp - 1.3);
+  const el = clamp(e0 + camOrbit.pitch, 0.02, 1.4), hor = dist * Math.cos(el);
+  camPos.set(camFx - fwdX * hor, 1.3 + dist * Math.sin(el), fz - fwdZ * hor);
+  const ahead = (14 - RO) * Math.min(1.2, (Math.cos(el) / Math.cos(e0)) ** 3); // plus on monte, plus on regarde vers le pilote
   P.shake = smooth(P.shake, 0, 3.5, dt);
   const vib = (0.004 + P.v * 0.00028) + P.shake * 0.05 + (P.x < -ROAD_L - 0.2 || P.x > ROAD_R + 0.2 ? 0.02 : 0);
   camera.position.set(camPos.x + (Math.random() - 0.5) * vib, camPos.y + (Math.random() - 0.5) * vib, camPos.z);
-  camLook.set(fx + fwdX * 14, P.crash ? 0.6 : 1.3, fz + fwdZ * 14);
+  camLook.set(fx + fwdX * ahead, P.crash ? 0.6 : 1.3, fz + fwdZ * ahead);
   camera.lookAt(camLook);
   if (!P.crash) camera.rotateZ(P.roll * 0.18);
   const baseFov = camera.aspect < 1 ? 70 : 58;
@@ -1158,13 +1189,13 @@ function frame(now) {
 }
 initCars();
 updateScooter(0); updateCamera(1);
-camPos.set(P.x, 2.1, P.z + 3.9);
+camFx = P.x;
 $('#loading').hidden = true; $('#start').hidden = false;
 $('#go').addEventListener('click', () => { audioInit(); $('#start').hidden = true; started = true; });
 requestAnimationFrame(frame);
 
 // outils de test (seulement avec ?debug dans l'adresse)
-if (location.search.includes('debug')) window.__g = { P, IN, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
+if (location.search.includes('debug')) window.__g = { P, IN, camOrbit, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
 </script>
 </body>
 </html>
