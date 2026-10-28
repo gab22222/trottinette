@@ -924,11 +924,13 @@ try { localStorage.removeItem('trott-modes'); } catch (e) {}
 // graphismes : adaptatif (par défaut, vise 60 i/s) ou qualité manuelle jusqu'à la définition native de l'écran
 // ======================================================================
 const NATIVE = Math.max(1, window.devicePixelRatio || 1);
-// preset : part de la définition de l'écran (Medium quand on choisit ce mode)
+// preset : part de la définition de l'écran ; par défaut le jeu démarre en Preset Low
+// (Medium quand on revient dans ce mode depuis un autre) ; le choix n'est enregistré que quand on le change
 const PRESETS = { low: 0.3, medium: 0.5, high: 0.7, ultra: 1 };
-const gfx = { mode: 'auto', ratio: Math.min(DPR, 1.6), preset: 'medium' };
+const gfx = { mode: 'preset', ratio: Math.min(DPR, 1.6), preset: 'low' };
 try {
-  const sg = JSON.parse(localStorage.getItem('trott-gfx') || 'null');
+  localStorage.removeItem('trott-gfx'); // anciens réglages enregistrés automatiquement : on repart du nouveau défaut
+  const sg = JSON.parse(localStorage.getItem('trott-gfx2') || 'null');
   if (sg && ['auto', 'preset', 'manual'].includes(sg.m)) { gfx.mode = sg.m; gfx.ratio = clamp(+sg.r || 1.6, 0.5, NATIVE); gfx.preset = PRESETS[sg.p] ? sg.p : 'medium'; }
 } catch (e) {}
 const presetRatio = () => PRESETS[gfx.preset] * NATIVE;
@@ -936,7 +938,7 @@ const gRange = $('#gRange');
 gRange.max = String(NATIVE);
 $('#gMax').textContent = 'écran natif (' + Math.round(innerWidth * NATIVE) + ' × ' + Math.round(innerHeight * NATIVE) + ')';
 function applyRatio(r) { pixelRatio = r; renderer.setPixelRatio(r); resize(); }
-function renderGfx() {
+function renderGfx(save = true) {
   document.querySelectorAll('[data-gmode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.gmode === gfx.mode)));
   document.querySelectorAll('[data-gpre]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.gpre === gfx.preset)));
   $('#gPre').hidden = gfx.mode !== 'preset'; $('#gSlider').hidden = gfx.mode === 'preset';
@@ -945,7 +947,7 @@ function renderGfx() {
   const name = { low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra' }[gfx.preset];
   $('#bGfxSub').textContent = gfx.mode === 'auto' ? 'adaptatif' : gfx.mode === 'preset' ? name : Math.round(gfx.ratio / NATIVE * 100) + ' %';
   gfxRes();
-  try { localStorage.setItem('trott-gfx', JSON.stringify({ m: gfx.mode, r: gfx.ratio, p: gfx.preset })); } catch (e) {}
+  if (save) try { localStorage.setItem('trott-gfx2', JSON.stringify({ m: gfx.mode, r: gfx.ratio, p: gfx.preset })); } catch (e) {}
 }
 function gfxRes() {
   const w = renderer.domElement.width, h = renderer.domElement.height;
@@ -959,11 +961,11 @@ document.querySelectorAll('[data-gmode]').forEach(b => b.addEventListener('click
 }));
 document.querySelectorAll('[data-gpre]').forEach(b => b.addEventListener('click', () => { gfx.preset = b.dataset.gpre; applyRatio(presetRatio()); renderGfx(); sfx('click'); }));
 gRange.addEventListener('input', () => { if (gfx.mode !== 'manual') return; gfx.ratio = +gRange.value; applyRatio(gfx.ratio); renderGfx(); });
-$('#bGfx').addEventListener('click', () => { audioInit(); $('#gfx').hidden = false; renderGfx(); });
+$('#bGfx').addEventListener('click', () => { audioInit(); $('#gfx').hidden = false; renderGfx(false); });
 $('#gClose').addEventListener('click', () => { $('#gfx').hidden = true; });
 if (gfx.mode === 'manual') applyRatio(gfx.ratio);
 if (gfx.mode === 'preset') applyRatio(presetRatio());
-renderGfx();
+renderGfx(false);
 
 // ======================================================================
 // sons : sifflement des moteurs-roues, vent (selon la vitesse²), roulement, voitures qui passent
@@ -1149,7 +1151,7 @@ function frame(now) {
     const ms = fpsT / fpsN * 1000;
     const want = ms > 22 ? pixelRatio - 0.15 : ms < 15 ? pixelRatio + 0.1 : pixelRatio;
     const np = clamp(want, 0.85, DPR);
-    if (Math.abs(np - pixelRatio) > 0.01) { applyRatio(np); if (!$('#gfx').hidden) renderGfx(); }
+    if (Math.abs(np - pixelRatio) > 0.01) { applyRatio(np); if (!$('#gfx').hidden) renderGfx(false); }
     fpsT = 0; fpsN = 0;
   }
   requestAnimationFrame(frame);
