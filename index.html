@@ -78,6 +78,9 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 #tip.flash span{color:#ff3626}
 #tip.flash .tipbar{border-color:#ff8f80;box-shadow:0 0 22px #ff2414}
 #tip.flash #tipFill{background:#ff2414;box-shadow:0 0 16px #ff2414}
+#replay{position:fixed;z-index:5;left:50%;top:calc(38% + 86px);transform:translateX(-50%);width:76px;height:76px;border-radius:50%;border:0;display:grid;place-items:center;padding:0;background:var(--accent);color:#2a1a00;box-shadow:0 8px 28px rgba(0,0,0,.4);cursor:pointer;touch-action:manipulation;animation:pop .25s ease-out}
+#replay svg{width:36px;height:36px;margin-left:5px}
+@keyframes pop{from{transform:translateX(-50%) scale(.6);opacity:0}}
 #fall{position:fixed;z-index:4;left:0;right:0;top:38%;text-align:center;font:700 64px/1 var(--display);letter-spacing:.04em;text-transform:uppercase;color:#ff6a4a;text-shadow:0 4px 24px rgba(0,0,0,.6);pointer-events:none}
 #wheelie{display:inline-block;margin-top:6px;padding:4px 10px;border-radius:999px;background:rgba(255,176,46,.22);color:#fff1d6;border:1px solid rgba(255,176,46,.55);letter-spacing:.12em}
 #home{text-decoration:none;min-width:0;opacity:.75}
@@ -126,6 +129,7 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 <div class="info"><div id="dist">0,0 km</div><div id="wheelie" hidden>Wheelie</div>
   <div id="tip" hidden><span>Déséquilibre</span><div class="tipbar"><i id="tipFill"></i></div></div></div>
 <div id="fall" hidden>Chute !</div>
+<button id="replay" type="button" aria-label="Reprendre" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg></button>
 <div id="gfx" hidden>
   <div class="gbox" role="dialog" aria-label="Graphismes">
     <div class="gtitle">Graphismes</div>
@@ -1036,7 +1040,7 @@ function physics(dt) {
 const crashG = new THREE.Group(), crashPitch = new THREE.Group(); crashG.add(crashPitch); scene.add(crashG);
 const RC = { v: 0, rot: 0, rotV: 0, rot0: 0, spin: 0 };
 function startCrash() {
-  P.crash = 1; P.crashT = 0; P.tip = 0; P.warn = -1; P.scrape = 0;
+  P.crash = 1; P.crashT = 0; P.crashAge = 0; P.tip = 0; P.warn = -1; P.scrape = 0;
   // le pilote quitte la trottinette en gardant sa position et son inclinaison
   crashG.position.set(P.x, R, P.z); crashG.rotation.set(0, P.yaw, 0); crashPitch.rotation.set(P.pitch, 0, 0);
   crashPitch.add(riderG); poseRider(-1, 0);
@@ -1060,6 +1064,7 @@ function crashPhysics(dt) {
   P.x += -Math.sin(P.yaw) * P.v * dt; P.z += -Math.cos(P.yaw) * P.v * dt;
   P.x = clamp(P.x, -ROAD_L - 0.4, ROAD_R + 0.5); crashG.position.x = clamp(crashG.position.x, -ROAD_L - 0.35, ROAD_R + 0.45);
   P.dist += P.v * dt; P.wheelieT = 0;
+  P.crashAge += dt;
   if (RC.v < 0.3 && P.v < 0.3) P.crashT += dt;
   if (P.crashT > 1.8) endCrash();
 }
@@ -1068,8 +1073,10 @@ function endCrash() {
   P.x = clamp(crashG.position.x, -LANE, LANE); P.z = crashG.position.z;
   Object.assign(P, { v: 0, pitch: 0, pitchV: 0, roll: 0, yaw: 0, lean: 0, crash: 0, tip: 0, warn: -1, scrape: 0, desc: null });
   pivotG.add(riderG); riderG.position.set(0, 0, 0); riderG.rotation.set(0, 0, 0);
-  $('#fall').hidden = true;
+  $('#fall').hidden = true; $('#replay').hidden = true;
 }
+// bouton play : 3 s après le début de la chute, pour repartir sans attendre la fin de la glissade
+$('#replay').addEventListener('click', () => { audioInit(); if (P.crash) { RC.v = 0; endCrash(); } });
 let hitCool = 0;
 function hitFx(k) {
   if (hitCool > 0) return; hitCool = 0.6; P.shake = Math.max(P.shake, 0.6 * k);
@@ -1318,7 +1325,13 @@ function updateSparks(dt) {
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
 let camYaw = 0, camFx = 0, camUp = 2.1, started = false;
 function recycle() {
-  for (const c of chunks) if (c.position.z - CH > P.z + 70) c.position.z -= NCH * CH;
+  // la route suit le pilote (pendant une chute, c'est lui que la caméra suit, la trottinette peut être loin devant) ;
+  // un tronçon passé derrière repart devant, et un tronçon trop loin devant revient derrière (après une chute)
+  const ref = P.crash ? crashG.position.z : P.z;
+  for (const c of chunks) {
+    if (c.position.z - CH > ref + 70) c.position.z -= NCH * CH;
+    else if (c.position.z - CH + NCH * CH <= ref + 70) c.position.z += NCH * CH;
+  }
   // grand décalage d'origine pour garder des nombres précis sur des centaines de kilomètres
   if (P.z < -3900) {
     const s = 3900; P.z += s; camPos.z += s; // 3900 m = 300 motifs de 13 m = 75 motifs de 52 m = 39 tronçons
@@ -1365,11 +1378,12 @@ function updateCamera(dt) {
   const fov = baseFov + clamp(P.v * KMH / 110, 0, 1.15) * 16 + Math.max(0, P.lean) * 2;
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = smooth(camera.fov, fov, 3, dt); camera.updateProjectionMatrix(); }
   // l'ombre suit le joueur
-  sunL.position.set(P.x + sun.x * 120, sun.y * 120, P.z - 20 + sun.z * 120); sunL.target.position.set(P.x, 0, P.z - 20);
+  sunL.position.set(fx + sun.x * 120, sun.y * 120, fz - 20 + sun.z * 120); sunL.target.position.set(fx, 0, fz - 20); // ombres autour du pilote
   sky.position.copy(camera.position);
 }
 function hud() {
-  $('#spd').textContent = Math.round(P.v * KMH);
+  $('#replay').hidden = !(P.crash && P.crashAge >= 3);
+  $('#spd').textContent = Math.round((P.crash ? RC.v : P.v) * KMH); // pendant une chute : la vitesse du pilote qui glisse
   $('#dist').textContent = (P.dist / 1000).toFixed(1).replace('.', ',') + ' km';
   const tp = $('#tip'); tp.hidden = !(P.tip > 0 && !P.crash); if (!tp.hidden) $('#tipFill').style.width = (P.tip * 100).toFixed(1) + '%';
   tp.classList.toggle('flash', P.warn >= 0 && P.warn < 4.5 && P.warn % 1.5 < 0.5); // 3 clignotements rouges : à 0, 1,5 et 3 s
