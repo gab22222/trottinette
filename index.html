@@ -84,6 +84,12 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 #fall{position:fixed;z-index:4;left:0;right:0;top:38%;text-align:center;font:700 64px/1 var(--display);letter-spacing:.04em;text-transform:uppercase;color:#ff6a4a;text-shadow:0 4px 24px rgba(0,0,0,.6);pointer-events:none}
 #wheelie{display:inline-block;margin-top:6px;padding:4px 10px;border-radius:999px;background:rgba(255,176,46,.22);color:#fff1d6;border:1px solid rgba(255,176,46,.55);letter-spacing:.12em}
 #home{text-decoration:none;min-width:0;opacity:.75}
+#flash{position:fixed;inset:0;z-index:3;pointer-events:none;background:#fff;opacity:0}
+#flash.on{animation:flashOut .45s ease-out}
+@keyframes flashOut{0%{opacity:.9}100%{opacity:0}}
+#radarMsg{position:fixed;z-index:4;left:34px;right:34px;top:30%;text-align:center;pointer-events:none;transform:rotate(-6deg);font:700 24px/1.2 var(--display);letter-spacing:.02em;text-transform:uppercase;color:#fff;text-shadow:0 2px 0 #8a0d05,0 4px 18px rgba(0,0,0,.55);animation:stamp .3s cubic-bezier(.2,1.6,.4,1)}
+#radarMsg b{color:#ffd23a}
+@keyframes stamp{from{transform:rotate(-6deg) scale(1.8);opacity:0}}
 #hit{position:fixed;inset:0;z-index:3;pointer-events:none;background:radial-gradient(ellipse at center,transparent 45%,rgba(255,60,40,.55));opacity:0;transition:opacity .5s}
 #hit.on{opacity:1;transition:none}
 #start{position:fixed;inset:0;z-index:6;display:grid;place-items:center;background:linear-gradient(180deg,rgba(8,12,18,.35),rgba(8,12,18,.85));padding:24px}
@@ -116,6 +122,8 @@ body{position:fixed;inset:0;touch-action:none;-webkit-user-select:none;user-sele
 </button>
 <div id="knobBase" hidden></div><div id="knob" hidden></div>
 <div id="hit"></div>
+<div id="flash"></div>
+<div id="radarMsg" hidden></div>
 
 <div class="dash">
   <div class="left">
@@ -909,6 +917,67 @@ function drawCars() {
 }
 
 // ======================================================================
+// radars fixes : un tous les 2 km environ sur l'accotement de droite, limite 110 km/h (voie express 2x2) ;
+// panneau 110 150 m avant ; au-dessus de la limite il flashe et la vitesse relevée s'affiche
+// ======================================================================
+const radar = (() => {
+  const LIMIT = 110, X = ROAD_R + 1.5;
+  const grey = new THREE.MeshStandardMaterial({ color: 0x9aa1a8, metalness: 0.35, roughness: 0.5 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x15181c, metalness: 0.2, roughness: 0.25 });
+  const flashMat = new THREE.MeshStandardMaterial({ color: 0xdfe6ec, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.3 });
+  const g = new THREE.Group();
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 1.7, 10).translate(0, 0.85, 0), grey);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.05, 0.55).translate(0, 2.2, 0), grey);
+  const hood = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.66).translate(0, 2.76, 0.04), grey);
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.12, 20).translate(-0.13, 2.38, 0.276), dark);
+  const lens2 = new THREE.Mesh(new THREE.CircleGeometry(0.07, 16).translate(0.15, 2.42, 0.276), dark);
+  const lamp = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.2).translate(0, 1.98, 0.277), flashMat);
+  for (const m of [mast, box, hood]) { m.castShadow = true; m.receiveShadow = true; }
+  g.add(mast, box, hood, lens, lens2, lamp);
+  g.rotation.y = -0.12; // tourné vers les véhicules qui arrivent
+  // halo du flash (additif, pas de lumière en plus dans la scène)
+  const glowTex = canvasTex(128, 128, (c, w) => { const gr = c.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(230,240,255,.6)'); gr.addColorStop(1, 'rgba(230,240,255,0)'); c.fillStyle = gr; c.fillRect(0, 0, w, w); });
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false }));
+  glow.position.set(0, 1.98, 0.5); glow.scale.setScalar(7); g.add(glow);
+  // panneau de limitation
+  const signTex = canvasTex(256, 256, (c, w) => {
+    c.fillStyle = '#d4141c'; c.beginPath(); c.arc(w / 2, w / 2, w / 2 - 2, 0, 6.29); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(w / 2, w / 2, w * 0.37, 0, 6.29); c.fill();
+    c.fillStyle = '#111'; c.font = 'bold 104px Arial, Helvetica, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(LIMIT), w / 2, w / 2 + 6);
+  });
+  const sign = new THREE.Group();
+  const sMast = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.3, 8).translate(0, 1.15, 0), grey);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.42, 32).translate(0, 2.3, 0.05), new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.6 }));
+  const back = new THREE.Mesh(new THREE.CircleGeometry(0.42, 32).rotateY(Math.PI).translate(0, 2.3, 0.04), grey);
+  sMast.castShadow = disc.castShadow = true; sign.add(sMast, disc, back);
+  scene.add(g, sign);
+
+  let z = -1200, shot = false, flashT = 0, msgT = 0; // le premier à 1,2 km du départ
+  const place = () => { g.position.set(X, 0, z); sign.position.set(X - 0.2, 0, z + 150); };
+  place();
+  const msg = $('#radarMsg'), fl = $('#flash');
+  function update(dt, prevZ) {
+    // passage devant le radar
+    if (!shot && !P.crash && prevZ >= z && P.z < z) {
+      shot = true;
+      const kmh = Math.round(P.v * KMH);
+      if (kmh > LIMIT) {
+        flashT = 0.35; msgT = 3.5; sfx('flash');
+        msg.innerHTML = `Flashé à <b>${kmh}&nbsp;km/h</b> au lieu de ${LIMIT}&nbsp;km/h&nbsp;!!!`; msg.hidden = false;
+        fl.classList.remove('on'); void fl.offsetWidth; fl.classList.add('on');
+      }
+    }
+    // radar suivant, environ 2 km plus loin
+    if (P.z < z - 150) { z -= 1800 + Math.random() * 400; shot = false; place(); }
+    flashT = Math.max(0, flashT - dt);
+    const k = flashT / 0.35;
+    flashMat.emissiveIntensity = k * 30; glow.material.opacity = k;
+    if (msgT > 0) { msgT -= dt; if (msgT <= 0) msg.hidden = true; }
+  }
+  return { update, shift: s => { z += s; place(); }, get z() { return z; }, LIMIT };
+})();
+
+// ======================================================================
 // physique de la trottinette
 // ======================================================================
 const P = { x: LANES[0] + 0.4, z: 0, yaw: 0, v: 0, pitch: 0, pitchV: 0, roll: 0, lean: 0, steer: 0, gear: 3, turbo: true, dual: true, antiFlip: false, dist: 0, wheelieT: 0, susp: 0, scrape: 0, shake: 0, tip: 0, warn: -1, crash: 0, crashT: 0 };
@@ -1244,6 +1313,7 @@ function sfx(k, v = 1) {
     if (k === 'hit') { f.type = 'lowpass'; f.frequency.value = 900; g.gain.setValueAtTime(0.9 * v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35); }
     else if (k === 'land') { f.type = 'lowpass'; f.frequency.value = 500; g.gain.setValueAtTime(0.5 * v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2); }
     else if (k === 'pass') { f.type = 'bandpass'; f.Q.value = 0.8; f.frequency.setValueAtTime(500, t); f.frequency.exponentialRampToValueAtTime(1600, t + 0.25); f.frequency.exponentialRampToValueAtTime(350, t + 0.9); g.gain.setValueAtTime(0.001, t); g.gain.exponentialRampToValueAtTime(0.55 * v, t + 0.22); g.gain.exponentialRampToValueAtTime(0.001, t + 1.0); }
+    else if (k === 'flash') { f.type = 'highpass'; f.frequency.value = 1800; g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12); }
     else if (k === 'click') { f.type = 'highpass'; f.frequency.value = 2500; g.gain.setValueAtTime(0.2, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05); }
     s.start(t, Math.random()); s.stop(t + 1.2);
   } catch (e) {}
@@ -1341,6 +1411,7 @@ function recycle() {
     for (const c of cars) c.z += s;
     crashG.position.z += s;
     clouds.shift(s);
+    radar.shift(s); radarPrevZ += s;
   }
 }
 function updateScooter(dt) {
@@ -1394,7 +1465,7 @@ function hud() {
   if (P.wheelieT > 0.3 && !P.crash) { w.hidden = false; w.textContent = `Wheelie ${Math.round(THREE.MathUtils.radToDeg(P.pitch))}° · ${P.wheelieT.toFixed(1).replace('.', ',')} s`; }
   else w.hidden = true;
 }
-let last = performance.now(), acc = 0, fpsT = 0, fpsN = 0;
+let last = performance.now(), acc = 0, fpsT = 0, fpsN = 0, radarPrevZ = 0;
 const STEP = 1 / 120;
 function step(dt) {
   keyInput();
@@ -1404,9 +1475,10 @@ function step(dt) {
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   acc += dt; let n = 0;
+  radarPrevZ = P.z;
   while (acc >= STEP && n < 8) { step(STEP); acc -= STEP; n++; }
   if (n === 8) acc = 0;
-  recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); clouds.update(dt, camera.position); hud(); updateAudio();
+  radar.update(dt, radarPrevZ); recycle(); drawCars(); updateScooter(dt); updateSparks(dt); updateStreaks(dt); updateCamera(dt); clouds.update(dt, camera.position); hud(); updateAudio();
   renderer.render(scene, camera);
   // résolution adaptative (mode par défaut) : vise 60 i/s, ne descend pas sous 30
   fpsT += dt; fpsN++;
@@ -1428,7 +1500,7 @@ $('#go').addEventListener('click', () => { audioInit(); $('#start').hidden = tru
 requestAnimationFrame(frame);
 
 // outils de test (seulement avec ?debug dans l'adresse)
-if (location.search.includes('debug')) window.__g = { P, IN, camOrbit, clouds, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
+if (location.search.includes('debug')) window.__g = { P, IN, camOrbit, clouds, radar, SC, cars, step: (n, dt = STEP) => { for (let i = 0; i < n; i++) step(dt); recycle(); drawCars(); updateScooter(dt * n); updateCamera(dt * n); hud(); renderer.render(scene, camera); }, start: () => { started = true; $('#start').hidden = true; }, renderer, THREE, scene, camera, head, stemTop, pivotG, crashG, RC, spk, updateSparks };
 </script>
 </body>
 </html>
